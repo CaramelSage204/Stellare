@@ -1,0 +1,8 @@
+{
+  "name": "Remix: Remix: BLA SWIPE BACK koshelek nahuj gogogo",
+  "description": "Przełomowa platforma łącząca psychologów, studentów psychologii i pacjentów. Oferuje kompleksową rejestrację, weryfikację, wyszukiwanie z filtrami oraz czaty z notatkami.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
