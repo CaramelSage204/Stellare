@@ -3,24 +3,19 @@ package com.example.ui
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.data.*
+import com.example.data.local.AppDatabase
+import com.example.data.local.entity.UserEntity
+import com.example.data.local.entity.ChatEntity
+import com.example.data.local.entity.MessageEntity
+import com.example.data.local.entity.NoteEntity
+import com.example.data.local.entity.ReviewEntity
+import com.example.data.local.entity.FavoriteEntity
+import com.example.data.local.entity.AppointmentEntity
+import com.example.data.local.entity.WalletTransactionEntity
+import com.example.data.repository.WektorRepository
+import com.example.ui.navigation.Screen
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
-
-sealed class Screen {
-    object Onboarding : Screen()
-    object Registration : Screen()
-    object Login : Screen()
-    object MainDashboard : Screen()
-    data class PsychologistDetail(val psychologistId: Int) : Screen()
-    data class ChatRoom(val chatId: Int) : Screen()
-    object MyRatings : Screen()
-    object MyClients : Screen()
-    object ProfileEdit : Screen()
-    object FAQ : Screen()
-    object Calendar : Screen()
-    object Wallet : Screen()
-}
 
 class WektorViewModel(application: Application) : AndroidViewModel(application) {
     private val database = AppDatabase.getDatabase(application)
