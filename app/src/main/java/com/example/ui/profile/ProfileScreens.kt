@@ -19,17 +19,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
-import com.example.data.local.entity.UserEntity
+import com.example.data.local.UserRole
 import com.example.ui.WektorViewModel
-import com.example.ui.components.SpecializationChip
 import com.example.ui.dashboard.SpecializationChip
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
@@ -170,8 +167,8 @@ fun ProfileEditScreen(
             
             Text(
                 text = when (currentUser?.role) {
-                    "PSYCHOLOGIST" -> "Psycholog"
-                    "STUDENT" -> "Student Psychologii"
+                    UserRole.PSYCHOLOGIST -> "Psycholog"
+                    UserRole.PSYCHOLOGY_STUDENT -> "Student Psychologii"
                     else -> "Pacjent"
                 } + " • ${currentUser?.age ?: 30} lat",
                 fontSize = 15.sp,
@@ -196,7 +193,7 @@ fun ProfileEditScreen(
                 modifier = Modifier.fillMaxWidth().height(120.dp).padding(bottom = 16.dp)
             )
 
-            if (currentUser?.role == "PSYCHOLOGIST" || currentUser?.role == "STUDENT") {
+            if (currentUser?.role == UserRole.PSYCHOLOGIST || currentUser?.role == UserRole.PSYCHOLOGY_STUDENT) {
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()

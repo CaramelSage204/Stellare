@@ -18,14 +18,13 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
+import com.example.data.local.UserRole
 import com.example.data.local.entity.UserEntity
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
@@ -39,7 +38,7 @@ fun WriteOfferDialog(
     val lastName = currentUser?.lastName ?: ""
     val age = currentUser?.age ?: 30
     val gender = currentUser?.gender ?: "Kobieta"
-    val isPsychologist = currentUser?.role == "PSYCHOLOGIST" || currentUser?.role == "STUDENT"
+    val isPsychologist = currentUser?.role == UserRole.PSYCHOLOGIST || currentUser?.role == UserRole.PSYCHOLOGY_STUDENT
 
     var bio by remember { mutableStateOf("") }
     var spec by remember { mutableStateOf(currentUser?.specializations ?: "") }
@@ -102,7 +101,7 @@ fun WriteOfferDialog(
                             fontSize = 16.sp
                         )
                         Text(
-                            text = "Profil: ${if (currentUser?.role == "PSYCHOLOGIST") "Psycholog" else if (currentUser?.role == "STUDENT") "Student Psychologii" else "Pacjent"} • $age lat • $gender",
+                            text = "Profil: ${if (currentUser?.role == UserRole.PSYCHOLOGIST) "Psycholog" else if (currentUser?.role == UserRole.PSYCHOLOGY_STUDENT) "Student Psychologii" else "Pacjent"} • $age lat • $gender",
                             fontSize = 12.sp,
                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                         )

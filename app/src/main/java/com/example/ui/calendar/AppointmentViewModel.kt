@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.local.AppDatabase
+import com.example.data.local.UserRole
 import com.example.data.local.entity.AppointmentEntity
 import com.example.data.local.entity.WalletTransactionEntity
 import com.example.data.repository.AppointmentRepository
@@ -23,7 +24,7 @@ class AppointmentViewModel(application: Application) : AndroidViewModel(applicat
 
     val currentPsychologistAppointments: StateFlow<List<AppointmentEntity>> = currentUser
         .flatMapLatest { user ->
-            if (user != null && (user.role == "PSYCHOLOGIST" || user.role == "STUDENT")) {
+            if (user != null && (user.role == UserRole.PSYCHOLOGIST || user.role == UserRole.PSYCHOLOGY_STUDENT)) {
                 appointmentRepository.getAppointmentsForPsychologistFlow(user.id)
             } else {
                 flowOf(emptyList())
@@ -32,7 +33,7 @@ class AppointmentViewModel(application: Application) : AndroidViewModel(applicat
 
     val currentPatientAppointments: StateFlow<List<AppointmentEntity>> = currentUser
         .flatMapLatest { user ->
-            if (user != null && user.role == "PATIENT") {
+            if (user != null && user.role == UserRole.PATIENT) {
                 appointmentRepository.getAppointmentsForPatientFlow(user.id)
             } else {
                 flowOf(emptyList())

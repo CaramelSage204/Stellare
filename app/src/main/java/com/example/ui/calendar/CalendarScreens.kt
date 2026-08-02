@@ -24,6 +24,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.data.local.UserRole
 import com.example.ui.WektorViewModel
 import kotlinx.coroutines.launch
 
@@ -36,7 +37,7 @@ fun CalendarScreen(
     val currentUser by viewModel.currentUser.collectAsStateWithLifecycle()
     val chatParticipants by viewModel.chatParticipants.collectAsStateWithLifecycle()
     
-    val isPsych = currentUser?.role == "PSYCHOLOGIST" || currentUser?.role == "STUDENT"
+    val isPsych = currentUser?.role == UserRole.PSYCHOLOGIST || currentUser?.role == UserRole.PSYCHOLOGY_STUDENT
     val psychAppointments by viewModel.currentPsychologistAppointments.collectAsStateWithLifecycle()
     val patientAppointments by viewModel.currentPatientAppointments.collectAsStateWithLifecycle()
     

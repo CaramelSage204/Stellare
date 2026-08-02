@@ -1,6 +1,7 @@
 package com.example.data.local.dao
 
 import androidx.room.*
+import com.example.data.local.UserRole
 import com.example.data.local.entity.UserEntity
 import kotlinx.coroutines.flow.Flow
 
@@ -13,10 +14,10 @@ interface UserDao {
     suspend fun getCurrentUser(): UserEntity?
 
     @Query("SELECT * FROM users WHERE role = :role AND id != :currentUserId")
-    fun getUsersFlow(role: String, currentUserId: Int): Flow<List<UserEntity>>
+    fun getUsersFlow(role: UserRole, currentUserId: Int): Flow<List<UserEntity>>
 
     @Query("SELECT * FROM users WHERE role = :role")
-    fun getUsersOfRoleFlow(role: String): Flow<List<UserEntity>>
+    fun getUsersOfRoleFlow(role: UserRole): Flow<List<UserEntity>>
 
     @Query("SELECT * FROM users WHERE id = :userId LIMIT 1")
     suspend fun getUserById(userId: Int): UserEntity?

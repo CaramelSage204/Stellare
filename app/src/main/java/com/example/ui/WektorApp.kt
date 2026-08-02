@@ -39,6 +39,7 @@ import com.example.ui.chat.MyClientsScreen
 import com.example.ui.reviews.MyRatingsScreen
 import androidx.compose.material3.HorizontalDivider
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.data.local.UserRole
 import com.example.ui.dashboard.DashboardViewModel
 import com.example.ui.dashboard.MainDashboardScreen
 import com.example.ui.profile.FAQScreen
@@ -156,7 +157,7 @@ fun WektorApp(viewModel: WektorViewModel) {
                                 gender = "Mężczyzna",
                                 phone = "+48 500 000 000",
                                 email = "jan@wektor.pl",
-                                role = "PATIENT",
+                                role = UserRole.PATIENT,
                                 bio = "Zalogowany jako pacjent testowy do celów eksploracji."
                             )
                         }
@@ -291,8 +292,8 @@ fun WektorNavigationDrawerContent(
                 }
                 Text(
                     text = when (currentUser?.role) {
-                        "PSYCHOLOGIST" -> "Psycholog"
-                        "STUDENT" -> "Student Psychologii"
+                        UserRole.PSYCHOLOGIST -> "Psycholog"
+                        UserRole.PSYCHOLOGY_STUDENT -> "Student Psychologii"
                         else -> "Pacjent"
                     },
                     fontSize = 14.sp,
@@ -343,7 +344,7 @@ fun WektorNavigationDrawerContent(
             }
         )
 
-        if (currentUser?.role == "PSYCHOLOGIST") {
+        if (currentUser?.role == UserRole.PSYCHOLOGIST) {
             DrawerItem(
                 icon = Icons.Default.Star,
                 label = "Moje Oceny i Opinie",
@@ -354,7 +355,7 @@ fun WektorNavigationDrawerContent(
             )
         }
 
-        val isPsych = currentUser?.role == "PSYCHOLOGIST" || currentUser?.role == "STUDENT"
+        val isPsych = currentUser?.role == UserRole.PSYCHOLOGIST || currentUser?.role == UserRole.PSYCHOLOGY_STUDENT
 
         DrawerItem(
             icon = Icons.Default.Chat,

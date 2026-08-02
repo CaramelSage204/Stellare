@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.local.AppDatabase
+import com.example.data.local.UserRole
 import com.example.data.local.entity.UserEntity
 import com.example.data.repository.UserRepository
 import kotlinx.coroutines.flow.*
@@ -26,8 +27,8 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
 
-    private val _roleFilter = MutableStateFlow("PSYCHOLOGIST")
-    val roleFilter: StateFlow<String> = _roleFilter.asStateFlow()
+    private val _roleFilter = MutableStateFlow(UserRole.PSYCHOLOGIST)
+    val roleFilter: StateFlow<UserRole> = _roleFilter.asStateFlow()
 
     private val _isRefreshing = MutableStateFlow(false)
     val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
@@ -54,7 +55,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     val filterMinRating = _filterMinRating.asStateFlow()
 
     val filteredPsychologists: StateFlow<List<UserEntity>> = combine(
-        userRepository.getUsersOfRoleFlow("PSYCHOLOGIST").combine(userRepository.getUsersOfRoleFlow("STUDENT")) { p, s -> p + s },
+        userRepository.getUsersOfRoleFlow(UserRole.PSYCHOLOGIST).combine(userRepository.getUsersOfRoleFlow(UserRole.PSYCHOLOGY_STUDENT)) { p, s -> p + s },
         _searchQuery,
         _filterAgeMin,
         _filterAgeMax,
@@ -90,7 +91,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val filteredPatients: StateFlow<List<UserEntity>> = combine(
-        userRepository.getUsersOfRoleFlow("PATIENT"),
+        userRepository.getUsersOfRoleFlow(UserRole.PATIENT),
         _searchQuery
     ) { list, query ->
         list.filter { user ->
@@ -112,11 +113,11 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
 
     val favoritePsychologists: StateFlow<List<UserEntity>> = combine(
         currentUser,
-        userRepository.getUsersOfRoleFlow("PSYCHOLOGIST").combine(userRepository.getUsersOfRoleFlow("STUDENT")) { p, s -> p + s },
-        userRepository.getUsersOfRoleFlow("PATIENT"),
+        userRepository.getUsersOfRoleFlow(UserRole.PSYCHOLOGIST).combine(userRepository.getUsersOfRoleFlow(UserRole.PSYCHOLOGY_STUDENT)) { p, s -> p + s },
+        userRepository.getUsersOfRoleFlow(UserRole.PATIENT),
         favoritePsychologistsIds
     ) { user, allPsychs, allPatients, favIds ->
-        val isPsych = user?.role == "PSYCHOLOGIST" || user?.role == "STUDENT"
+        val isPsych = user?.role == UserRole.PSYCHOLOGIST || user?.role == UserRole.PSYCHOLOGY_STUDENT
         val targetList = if (isPsych) allPatients else allPsychs
         targetList.filter { targetUser -> favIds.contains(targetUser.id) }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -137,7 +138,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
         _searchQuery.value = query
     }
 
-    fun setRoleFilter(role: String) {
+    fun setRoleFilter(role: UserRole) {
         _roleFilter.value = role
     }
 
@@ -187,7 +188,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     ) {
         viewModelScope.launch {
             val curr = currentUser.value
-            val targetRole = curr?.role ?: "PATIENT"
+            val targetRole = curr?.role ?: UserRole.PATIENT
             val newPost = UserEntity(
                 firstName = firstName,
                 lastName = lastName,
@@ -196,18 +197,18 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                 phone = curr?.phone ?: "+48 555 000 111",
                 email = curr?.email ?: "anonim@wektor.pl",
                 role = targetRole,
-                isVerified = targetRole == "PSYCHOLOGIST" && qual.isNotEmpty(),
+                isVerified = targetRole == UserRole.PSYCHOLOGIST && qual.isNotEmpty(),
                 qualifications = qual,
                 specializations = spec,
                 pricePerSession = price,
-                rating = if (targetRole == "PSYCHOLOGIST") 5.0 else 0.0,
-                ratingCount = if (targetRole == "PSYCHOLOGIST") 1 else 0,
+                rating = if (targetRole == UserRole.PSYCHOLOGIST) 5.0 else 0.0,
+                ratingCount = if (targetRole == UserRole.PSYCHOLOGIST) 1 else 0,
                 bio = bio,
                 isCurrentUser = false,
                 customPrices = ""
             )
             userRepository.insertUser(newPost)
-            val viewRole = if (targetRole == "STUDENT" || targetRole == "PSYCHOLOGIST") "PSYCHOLOGIST" else "PATIENT"
+            val viewRole = if (targetRole == UserRole.PSYCHOLOGY_STUDENT || targetRole == UserRole.PSYCHOLOGIST) UserRole.PSYCHOLOGIST else UserRole.PATIENT
             _roleFilter.value = viewRole
             _searchQuery.value = ""
         }

@@ -2,6 +2,7 @@ package com.example.data.local.entity
 
 import androidx.room.Entity
 import androidx.room.PrimaryKey
+import com.example.data.local.UserRole
 
 @Entity(tableName = "users")
 data class UserEntity(
@@ -12,7 +13,7 @@ data class UserEntity(
     val gender: String,
     val phone: String,
     val email: String,
-    val role: String, // "PSYCHOLOGIST" or "PATIENT"
+    val role: UserRole,
     val isVerified: Boolean = false,
     val qualifications: String = "", // e.g. "Licencjat", "Doktorant", "Certyfikat"
     val specializations: String = "", // e.g. "Rodzina, Ogólny, Praca"

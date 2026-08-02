@@ -4,12 +4,12 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.local.AppDatabase
+import com.example.data.local.UserRole
 import com.example.data.local.entity.UserEntity
 import com.example.data.local.entity.ChatEntity
 import com.example.data.local.entity.MessageEntity
 import com.example.data.local.entity.NoteEntity
 import com.example.data.local.entity.ReviewEntity
-import com.example.data.local.entity.FavoriteEntity
 import com.example.data.local.entity.AppointmentEntity
 import com.example.data.local.entity.WalletTransactionEntity
 import com.example.data.repository.WektorRepository
@@ -46,8 +46,8 @@ class WektorViewModel(application: Application) : AndroidViewModel(application) 
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
 
-    private val _roleFilter = MutableStateFlow("PSYCHOLOGIST") // "PSYCHOLOGIST" or "PATIENT"
-    val roleFilter: StateFlow<String> = _roleFilter.asStateFlow()
+    private val _roleFilter = MutableStateFlow(UserRole.PSYCHOLOGIST)
+    val roleFilter: StateFlow<UserRole> = _roleFilter.asStateFlow()
 
     private val _isRefreshing = MutableStateFlow(false)
     val isRefreshing: StateFlow<Boolean> = _isRefreshing.asStateFlow()
@@ -76,7 +76,7 @@ class WektorViewModel(application: Application) : AndroidViewModel(application) 
 
     // List of active users of specific roles, updated by database + filters
     val filteredPsychologists: StateFlow<List<UserEntity>> = combine(
-        repository.getUsersOfRoleFlow("PSYCHOLOGIST").combine(repository.getUsersOfRoleFlow("STUDENT")) { p, s -> p + s },
+        repository.getUsersOfRoleFlow(UserRole.PSYCHOLOGIST).combine(repository.getUsersOfRoleFlow(UserRole.PSYCHOLOGY_STUDENT)) { p, s -> p + s },
         _searchQuery,
         _filterAgeMin,
         _filterAgeMax,
@@ -114,7 +114,7 @@ class WektorViewModel(application: Application) : AndroidViewModel(application) 
     suspend fun getUserById(userId: Int): UserEntity? = repository.getUserById(userId)
 
     val filteredPatients: StateFlow<List<UserEntity>> = combine(
-        repository.getUsersOfRoleFlow("PATIENT"),
+        repository.getUsersOfRoleFlow(UserRole.PATIENT),
         _searchQuery
     ) { list, query ->
         list.filter { user ->
@@ -147,11 +147,11 @@ class WektorViewModel(application: Application) : AndroidViewModel(application) 
 
     val favoritePsychologists: StateFlow<List<UserEntity>> = combine(
         currentUser,
-        repository.getUsersOfRoleFlow("PSYCHOLOGIST").combine(repository.getUsersOfRoleFlow("STUDENT")) { p, s -> p + s },
-        repository.getUsersOfRoleFlow("PATIENT"),
+        repository.getUsersOfRoleFlow(UserRole.PSYCHOLOGIST).combine(repository.getUsersOfRoleFlow(UserRole.PSYCHOLOGY_STUDENT)) { p, s -> p + s },
+        repository.getUsersOfRoleFlow(UserRole.PATIENT),
         favoritePsychologistsIds
     ) { user, allPsychs, allPatients, favIds ->
-        val isPsych = user?.role == "PSYCHOLOGIST" || user?.role == "STUDENT"
+        val isPsych = user?.role == UserRole.PSYCHOLOGIST || user?.role == UserRole.PSYCHOLOGY_STUDENT
         val targetList = if (isPsych) allPatients else allPsychs
         targetList.filter { targetUser -> favIds.contains(targetUser.id) }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -181,7 +181,7 @@ class WektorViewModel(application: Application) : AndroidViewModel(application) 
 
     private suspend fun loadChatParticipants() {
         // Collect users and cache them for chat views
-        repository.getUsersOfRoleFlow("PSYCHOLOGIST").combine(repository.getUsersOfRoleFlow("PATIENT")) { psychs, patients ->
+        repository.getUsersOfRoleFlow(UserRole.PSYCHOLOGIST).combine(repository.getUsersOfRoleFlow(UserRole.PATIENT)) { psychs, patients ->
             psychs + patients
         }.collect { allUsers ->
             _chatParticipants.value = allUsers.associateBy { it.id }
@@ -222,7 +222,7 @@ class WektorViewModel(application: Application) : AndroidViewModel(application) 
         _searchQuery.value = query
     }
 
-    fun setRoleFilter(role: String) {
+    fun setRoleFilter(role: UserRole) {
         _roleFilter.value = role
     }
 
@@ -260,7 +260,6 @@ class WektorViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    // Save and register a user
     fun registerUser(
         firstName: String,
         lastName: String,
@@ -268,7 +267,7 @@ class WektorViewModel(application: Application) : AndroidViewModel(application) 
         gender: String,
         phone: String,
         email: String,
-        role: String,
+        role: UserRole,
         isVerified: Boolean = false,
         qualifications: String = "",
         specializations: String = "",
@@ -290,8 +289,8 @@ class WektorViewModel(application: Application) : AndroidViewModel(application) 
                 qualifications = qualifications,
                 specializations = specializations,
                 pricePerSession = pricePerSession,
-                rating = if (role == "PSYCHOLOGIST") 5.0 else 0.0,
-                ratingCount = if (role == "PSYCHOLOGIST") 1 else 0,
+                rating = if (role == UserRole.PSYCHOLOGIST) 5.0 else 0.0,
+                ratingCount = if (role == UserRole.PSYCHOLOGIST) 1 else 0,
                 bio = bio,
                 isCurrentUser = true,
                 customPrices = customPrices
@@ -302,12 +301,12 @@ class WektorViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    fun loginUser(email: String, preferredRole: String? = null) {
+    fun loginUser(email: String, preferredRole: UserRole? = null) {
         viewModelScope.launch {
             repository.clearCurrentUser()
-            val allPsychologists = repository.getUsersOfRoleFlow("PSYCHOLOGIST").first()
-            val allPatients = repository.getUsersOfRoleFlow("PATIENT").first()
-            val allStudents = repository.getUsersOfRoleFlow("STUDENT").first()
+            val allPsychologists = repository.getUsersOfRoleFlow(UserRole.PSYCHOLOGIST).first()
+            val allPatients = repository.getUsersOfRoleFlow(UserRole.PATIENT).first()
+            val allStudents = repository.getUsersOfRoleFlow(UserRole.PSYCHOLOGY_STUDENT).first()
             val match = (allPsychologists + allPatients + allStudents).find { it.email.equals(email, ignoreCase = true) }
             
             if (match != null) {
@@ -315,7 +314,7 @@ class WektorViewModel(application: Application) : AndroidViewModel(application) 
                     match.copy(
                         isCurrentUser = true,
                         role = preferredRole,
-                        isVerified = if (preferredRole == "PSYCHOLOGIST") true else match.isVerified
+                        isVerified = if (preferredRole == UserRole.PSYCHOLOGIST) true else match.isVerified
                     )
                 } else {
                     match.copy(isCurrentUser = true)
@@ -325,7 +324,7 @@ class WektorViewModel(application: Application) : AndroidViewModel(application) 
                 // Auto create demo user to prevent dead ends during exploration
                 val isPsych = email.contains("psych", ignoreCase = true)
                 val isStud = email.contains("student", ignoreCase = true)
-                val detectedRole = if (isPsych) "PSYCHOLOGIST" else if (isStud) "STUDENT" else "PATIENT"
+                val detectedRole = if (isPsych) UserRole.PSYCHOLOGIST else if (isStud) UserRole.PSYCHOLOGY_STUDENT else UserRole.PATIENT
                 
                 val role = preferredRole ?: detectedRole
                 val newUser = UserEntity(
@@ -336,8 +335,8 @@ class WektorViewModel(application: Application) : AndroidViewModel(application) 
                     phone = "+48 505 444 333",
                     email = email,
                     role = role,
-                    isVerified = role == "PSYCHOLOGIST",
-                    qualifications = if (role == "PSYCHOLOGIST") "Magister Psychologii" else if (role == "STUDENT") "Student 4. roku" else "",
+                    isVerified = role == UserRole.PSYCHOLOGIST,
+                    qualifications = if (role == UserRole.PSYCHOLOGIST) "Magister Psychologii" else if (role == UserRole.PSYCHOLOGY_STUDENT) "Student 4. roku" else "",
                     bio = "Zarejestrowany użytkownik platformy Wektor.",
                     isCurrentUser = true,
                     customPrices = ""
@@ -360,7 +359,7 @@ class WektorViewModel(application: Application) : AndroidViewModel(application) 
     ) {
         viewModelScope.launch {
             val curr = currentUser.value
-            val targetRole = curr?.role ?: "PATIENT"
+            val targetRole = curr?.role ?: UserRole.PATIENT
             val newPost = UserEntity(
                 firstName = firstName,
                 lastName = lastName,
@@ -369,19 +368,19 @@ class WektorViewModel(application: Application) : AndroidViewModel(application) 
                 phone = curr?.phone ?: "+48 555 000 111",
                 email = curr?.email ?: "anonim@wektor.pl",
                 role = targetRole,
-                isVerified = targetRole == "PSYCHOLOGIST" && qual.isNotEmpty(),
+                isVerified = targetRole == UserRole.PSYCHOLOGIST && qual.isNotEmpty(),
                 qualifications = qual,
                 specializations = spec,
                 pricePerSession = price,
-                rating = if (targetRole == "PSYCHOLOGIST") 5.0 else 0.0,
-                ratingCount = if (targetRole == "PSYCHOLOGIST") 1 else 0,
+                rating = if (targetRole == UserRole.PSYCHOLOGIST) 5.0 else 0.0,
+                ratingCount = if (targetRole == UserRole.PSYCHOLOGIST) 1 else 0,
                 bio = bio,
                 isCurrentUser = false,
                 customPrices = ""
             )
             repository.insertUser(newPost)
             // Automatically switch role tab filter and clear search query so the new post is instantly visible
-            val viewRole = if (targetRole == "STUDENT" || targetRole == "PSYCHOLOGIST") "PSYCHOLOGIST" else "PATIENT"
+            val viewRole = if (targetRole == UserRole.PSYCHOLOGY_STUDENT || targetRole == UserRole.PSYCHOLOGIST) UserRole.PSYCHOLOGIST else UserRole.PATIENT
             _roleFilter.value = viewRole
             _searchQuery.value = ""
         }
@@ -481,7 +480,7 @@ class WektorViewModel(application: Application) : AndroidViewModel(application) 
     // --- APPOINTMENTS / CALENDAR STATE & ACTIONS ---
     val currentPsychologistAppointments: StateFlow<List<AppointmentEntity>> = currentUser
         .flatMapLatest { user ->
-            if (user != null && (user.role == "PSYCHOLOGIST" || user.role == "STUDENT")) {
+            if (user != null && (user.role == UserRole.PSYCHOLOGIST || user.role == UserRole.PSYCHOLOGY_STUDENT)) {
                 repository.getAppointmentsForPsychologistFlow(user.id)
             } else {
                 flowOf(emptyList())
@@ -490,7 +489,7 @@ class WektorViewModel(application: Application) : AndroidViewModel(application) 
 
     val currentPatientAppointments: StateFlow<List<AppointmentEntity>> = currentUser
         .flatMapLatest { user ->
-            if (user != null && user.role == "PATIENT") {
+            if (user != null && user.role == UserRole.PATIENT) {
                 repository.getAppointmentsForPatientFlow(user.id)
             } else {
                 flowOf(emptyList())
@@ -592,7 +591,7 @@ class WektorViewModel(application: Application) : AndroidViewModel(application) 
     fun startChatWith(otherUserId: Int) {
         viewModelScope.launch {
             val curr = currentUser.value ?: return@launch
-            val isCurrentPsych = curr.role == "PSYCHOLOGIST"
+            val isCurrentPsych = curr.role == UserRole.PSYCHOLOGIST
             val psychId = if (isCurrentPsych) curr.id else otherUserId
             val patientId = if (isCurrentPsych) otherUserId else curr.id
 
@@ -612,9 +611,8 @@ class WektorViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    // Prepopulate some interesting data representing the Polish application theme "Wektor"
     private suspend fun prepopulateMockDataIfNeeded() {
-        val existing = repository.getUsersOfRoleFlow("PSYCHOLOGIST").first()
+        val existing = repository.getUsersOfRoleFlow(UserRole.PSYCHOLOGIST).first()
         if (existing.isNotEmpty()) return
 
         // 1. Insert Mock Psychologists
@@ -625,7 +623,7 @@ class WektorViewModel(application: Application) : AndroidViewModel(application) 
             gender = "Kobieta",
             phone = "+48 501 234 567",
             email = "anna.nowak@wektor.pl",
-            role = "PSYCHOLOGIST",
+            role = UserRole.PSYCHOLOGIST,
             isVerified = true,
             qualifications = "Magister Psychologii UJ",
             specializations = "Rodzina, Depresja, Lęki",
@@ -643,7 +641,7 @@ class WektorViewModel(application: Application) : AndroidViewModel(application) 
             gender = "Mężczyzna",
             phone = "+48 602 345 678",
             email = "igor.k@student.pl",
-            role = "STUDENT",
+            role = UserRole.PSYCHOLOGY_STUDENT,
             isVerified = false,
             qualifications = "Student 4. roku UW",
             specializations = "Ogólny, Praca, Stres",
@@ -661,7 +659,7 @@ class WektorViewModel(application: Application) : AndroidViewModel(application) 
             gender = "Kobieta",
             phone = "+48 703 456 789",
             email = "m.wisniewska@phd.pl",
-            role = "PSYCHOLOGIST",
+            role = UserRole.PSYCHOLOGIST,
             isVerified = true,
             qualifications = "Doktorantka SWPS",
             specializations = "Życie intymne, Relacje, Emocje",
@@ -679,7 +677,7 @@ class WektorViewModel(application: Application) : AndroidViewModel(application) 
             gender = "Mężczyzna",
             phone = "+48 804 567 890",
             email = "p.zielinski@terapia.pl",
-            role = "PSYCHOLOGIST",
+            role = UserRole.PSYCHOLOGIST,
             isVerified = true,
             qualifications = "Certyfikowany Psychoterapeuta PTTPB",
             specializations = "Uzależnienia, Rodzina, Kryzysy",
@@ -698,7 +696,7 @@ class WektorViewModel(application: Application) : AndroidViewModel(application) 
             gender = "Mężczyzna",
             phone = "+48 905 678 901",
             email = "janusz.it@poczta.pl",
-            role = "PATIENT",
+            role = UserRole.PATIENT,
             bio = "Szukam wsparcia w związku z wypaleniem zawodowym w IT oraz przewlekłym stresem.",
             isCurrentUser = false
         )).toInt()
@@ -710,7 +708,7 @@ class WektorViewModel(application: Application) : AndroidViewModel(application) 
             gender = "Kobieta",
             phone = "+48 106 789 012",
             email = "julia.m@stud.pl",
-            role = "PATIENT",
+            role = UserRole.PATIENT,
             bio = "Zmagam się ze stanami lękowymi przed egzaminami oraz trudnościami w relacjach rówieśniczych.",
             isCurrentUser = false
         )).toInt()

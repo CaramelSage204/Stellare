@@ -28,6 +28,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import kotlinx.coroutines.delay
 import androidx.compose.ui.platform.LocalView
+import com.example.data.local.UserRole
 
 @Composable
 fun RegistrationScreen(
@@ -37,7 +38,7 @@ fun RegistrationScreen(
     var step by remember { mutableIntStateOf(1) }
 
     // Forms states
-    var role by remember { mutableStateOf("PATIENT") } // "PATIENT" or "PSYCHOLOGIST"
+    var role by remember { mutableStateOf(UserRole.PATIENT) } // UserRole enum
     var firstName by remember { mutableStateOf("") }
     var lastName by remember { mutableStateOf("") }
     var ageString by remember { mutableStateOf("") }
@@ -77,7 +78,7 @@ fun RegistrationScreen(
             }
             Spacer(modifier = Modifier.width(8.dp))
             Text(
-                text = "Krok $step z ${if (role == "PSYCHOLOGIST" || role == "STUDENT") 5 else 4}",
+                text = "Krok $step z ${if (role == UserRole.PSYCHOLOGIST || role == UserRole.PSYCHOLOGY_STUDENT) 5 else 4}",
                 fontSize = 18.sp,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onBackground
@@ -86,7 +87,7 @@ fun RegistrationScreen(
 
         // Stepper Progress Bar
         LinearProgressIndicator(
-            progress = { step.toFloat() / if (role == "PSYCHOLOGIST" || role == "STUDENT") 5f else 4f },
+            progress = { step.toFloat() / if (role == UserRole.PSYCHOLOGIST || role == UserRole.PSYCHOLOGY_STUDENT) 5f else 4f },
             modifier = Modifier.fillMaxWidth().padding(bottom = 24.dp).clip(RoundedCornerShape(4.dp)),
             color = MaterialTheme.colorScheme.primary,
             trackColor = MaterialTheme.colorScheme.surfaceVariant
@@ -107,15 +108,15 @@ fun RegistrationScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .border(
-                                width = if (role == "PATIENT") 2.dp else 1.dp,
-                                color = if (role == "PATIENT") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline.copy(alpha = 0.3f),
+                                width = if (role == UserRole.PATIENT) 2.dp else 1.dp,
+                                color = if (role == UserRole.PATIENT) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline.copy(alpha = 0.3f),
                                 shape = RoundedCornerShape(16.dp)
                             )
                             .background(
-                                color = if (role == "PATIENT") MaterialTheme.colorScheme.primary.copy(alpha = 0.08f) else MaterialTheme.colorScheme.surface,
+                                color = if (role == UserRole.PATIENT) MaterialTheme.colorScheme.primary.copy(alpha = 0.08f) else MaterialTheme.colorScheme.surface,
                                 shape = RoundedCornerShape(16.dp)
                             )
-                            .clickable { role = "PATIENT" }
+                            .clickable { role = UserRole.PATIENT }
                             .padding(16.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -133,7 +134,7 @@ fun RegistrationScreen(
                             Text("Pacjent", fontWeight = FontWeight.Bold, fontSize = 15.sp)
                             Text("Szukam profesjonalnego wsparcia i rozmowy", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
                         }
-                        RadioButton(selected = role == "PATIENT", onClick = { role = "PATIENT" })
+                        RadioButton(selected = role == UserRole.PATIENT, onClick = { role = UserRole.PATIENT })
                     }
 
                     // Psychologist Card
@@ -141,15 +142,15 @@ fun RegistrationScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .border(
-                                width = if (role == "PSYCHOLOGIST") 2.dp else 1.dp,
-                                color = if (role == "PSYCHOLOGIST") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline.copy(alpha = 0.3f),
+                                width = if (role == UserRole.PSYCHOLOGIST) 2.dp else 1.dp,
+                                color = if (role == UserRole.PSYCHOLOGIST) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline.copy(alpha = 0.3f),
                                 shape = RoundedCornerShape(16.dp)
                             )
                             .background(
-                                color = if (role == "PSYCHOLOGIST") MaterialTheme.colorScheme.primary.copy(alpha = 0.08f) else MaterialTheme.colorScheme.surface,
+                                color = if (role == UserRole.PSYCHOLOGIST) MaterialTheme.colorScheme.primary.copy(alpha = 0.08f) else MaterialTheme.colorScheme.surface,
                                 shape = RoundedCornerShape(16.dp)
                             )
-                            .clickable { role = "PSYCHOLOGIST" }
+                            .clickable { role = UserRole.PSYCHOLOGIST }
                             .padding(16.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -167,7 +168,7 @@ fun RegistrationScreen(
                             Text("Dyplomowany Psycholog", fontWeight = FontWeight.Bold, fontSize = 15.sp)
                             Text("Chcę oferować sesje, doradzać i wspierać", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
                         }
-                        RadioButton(selected = role == "PSYCHOLOGIST", onClick = { role = "PSYCHOLOGIST" })
+                        RadioButton(selected = role == UserRole.PSYCHOLOGIST, onClick = { role = UserRole.PSYCHOLOGIST })
                     }
 
                     // Student Card
@@ -175,15 +176,15 @@ fun RegistrationScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .border(
-                                width = if (role == "STUDENT") 2.dp else 1.dp,
-                                color = if (role == "STUDENT") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline.copy(alpha = 0.3f),
+                                width = if (role == UserRole.PSYCHOLOGY_STUDENT) 2.dp else 1.dp,
+                                color = if (role == UserRole.PSYCHOLOGY_STUDENT) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline.copy(alpha = 0.3f),
                                 shape = RoundedCornerShape(16.dp)
                             )
                             .background(
-                                color = if (role == "STUDENT") MaterialTheme.colorScheme.primary.copy(alpha = 0.08f) else MaterialTheme.colorScheme.surface,
+                                color = if (role == UserRole.PSYCHOLOGY_STUDENT) MaterialTheme.colorScheme.primary.copy(alpha = 0.08f) else MaterialTheme.colorScheme.surface,
                                 shape = RoundedCornerShape(16.dp)
                             )
-                            .clickable { role = "STUDENT" }
+                            .clickable { role = UserRole.PSYCHOLOGY_STUDENT }
                             .padding(16.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -201,7 +202,7 @@ fun RegistrationScreen(
                             Text("Student Psychologii", fontWeight = FontWeight.Bold, fontSize = 15.sp)
                             Text("Chcę zdobywać praktykę i doświadczenie", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
                         }
-                        RadioButton(selected = role == "STUDENT", onClick = { role = "STUDENT" })
+                        RadioButton(selected = role == UserRole.PSYCHOLOGY_STUDENT, onClick = { role = UserRole.PSYCHOLOGY_STUDENT })
                     }
                 }
 
@@ -265,7 +266,7 @@ fun RegistrationScreen(
                 OutlinedTextField(
                     value = bio,
                     onValueChange = { bio = it },
-                    label = { Text(if (role == "PSYCHOLOGIST") "Twój krótki biogram / doświadczenie" else "Czego poszukujesz / Twoje obawy") },
+                    label = { Text(if (role == UserRole.PSYCHOLOGIST) "Twój krótki biogram / doświadczenie" else "Czego poszukujesz / Twoje obawy") },
                     modifier = Modifier.fillMaxWidth().height(120.dp).padding(bottom = 16.dp),
                     shape = RoundedCornerShape(12.dp)
                 )
@@ -519,7 +520,7 @@ fun RegistrationScreen(
         // Stepper Navigation
         Button(
             onClick = {
-                val totalSteps = if (role == "PSYCHOLOGIST" || role == "STUDENT") 5 else 4
+                val totalSteps = if (role == UserRole.PSYCHOLOGIST || role == UserRole.PSYCHOLOGY_STUDENT) 5 else 4
                 if (step < totalSteps) {
                     // Check step validation
                     if (step == 3 && !isSmsVerified) {
@@ -536,10 +537,10 @@ fun RegistrationScreen(
                         phone = phone.ifEmpty { "+48 501 222 333" },
                         email = email.ifEmpty { "user@wektor.pl" },
                         role = role,
-                        isVerified = if (role == "PSYCHOLOGIST" || role == "STUDENT") isDocumentScanned else false,
-                        qualifications = if (role == "PSYCHOLOGIST") "$qualType SWPS" else if (role == "STUDENT") "Student Psychologii $qualType" else "",
-                        specializations = if (role == "PSYCHOLOGIST" || role == "STUDENT") "Rodzina, Ogólny, Praca" else "",
-                        pricePerSession = if (role == "PSYCHOLOGIST" || role == "STUDENT") 120.0 else 0.0,
+                        isVerified = if (role == UserRole.PSYCHOLOGIST || role == UserRole.PSYCHOLOGY_STUDENT) isDocumentScanned else false,
+                        qualifications = if (role == UserRole.PSYCHOLOGIST) "$qualType SWPS" else if (role == UserRole.PSYCHOLOGY_STUDENT) "Student Psychologii $qualType" else "",
+                        specializations = if (role == UserRole.PSYCHOLOGIST || role == UserRole.PSYCHOLOGY_STUDENT) "Rodzina, Ogólny, Praca" else "",
+                        pricePerSession = if (role == UserRole.PSYCHOLOGIST || role == UserRole.PSYCHOLOGY_STUDENT) 120.0 else 0.0,
                         bio = bio.ifEmpty { "Zarejestrowany użytkownik platformy Wektor." }
                     )
                 }
@@ -548,7 +549,7 @@ fun RegistrationScreen(
             modifier = Modifier.fillMaxWidth().height(52.dp)
         ) {
             Text(
-                if (step == (if (role == "PSYCHOLOGIST" || role == "STUDENT") 5 else 4)) "Zakończ i Zapisz" else "Dalej",
+                if (step == (if (role == UserRole.PSYCHOLOGIST || role == UserRole.PSYCHOLOGY_STUDENT) 5 else 4)) "Zakończ i Zapisz" else "Dalej",
                 fontSize = 16.sp,
                 fontWeight = FontWeight.Bold,
                 color = Color.Black

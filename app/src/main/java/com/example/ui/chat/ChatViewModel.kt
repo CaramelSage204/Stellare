@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.local.AppDatabase
+import com.example.data.local.UserRole
 import com.example.data.local.entity.ChatEntity
 import com.example.data.local.entity.MessageEntity
 import com.example.data.local.entity.NoteEntity
@@ -41,11 +42,12 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private suspend fun loadChatParticipants() {
-        userRepository.getUsersOfRoleFlow("PSYCHOLOGIST").combine(userRepository.getUsersOfRoleFlow("PATIENT")) { psychs, patients ->
-            psychs + patients
-        }.collect { allUsers ->
-            _chatParticipants.value = allUsers.associateBy { it.id }
-        }
+        userRepository.getUsersOfRoleFlow(UserRole.PSYCHOLOGIST)
+            .combine(userRepository.getUsersOfRoleFlow(UserRole.PATIENT)) { psychs, patients ->
+                psychs + patients
+            }.collect { allUsers ->
+                _chatParticipants.value = allUsers.associateBy { it.id }
+            }
     }
 
     fun getMessagesForChat(chatId: Int): Flow<List<MessageEntity>> = chatRepository.getMessagesForChatFlow(chatId)
@@ -82,7 +84,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     fun startChatWith(otherUserId: Int, onNavigate: (Screen) -> Unit) {
         viewModelScope.launch {
             val curr = currentUser.value ?: return@launch
-            val isCurrentPsych = curr.role == "PSYCHOLOGIST"
+            val isCurrentPsych = curr.role == UserRole.PSYCHOLOGIST || curr.role == UserRole.PSYCHOLOGY_STUDENT
             val psychId = if (isCurrentPsych) curr.id else otherUserId
             val patientId = if (isCurrentPsych) otherUserId else curr.id
 

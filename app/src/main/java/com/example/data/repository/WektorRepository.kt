@@ -1,6 +1,7 @@
 package com.example.data.repository
 
 import com.example.data.local.AppDatabase
+import com.example.data.local.UserRole
 import com.example.data.local.entity.*
 import kotlinx.coroutines.flow.Flow
 
@@ -17,8 +18,8 @@ class WektorRepository(private val db: AppDatabase) {
     // Users
     fun getCurrentUserFlow(): Flow<UserEntity?> = userDao.getCurrentUserFlow()
     suspend fun getCurrentUser(): UserEntity? = userDao.getCurrentUser()
-    fun getUsersFlow(role: String, currentUserId: Int): Flow<List<UserEntity>> = userDao.getUsersFlow(role, currentUserId)
-    fun getUsersOfRoleFlow(role: String): Flow<List<UserEntity>> = userDao.getUsersOfRoleFlow(role)
+    fun getUsersFlow(role: UserRole, currentUserId: Int): Flow<List<UserEntity>> = userDao.getUsersFlow(role, currentUserId)
+    fun getUsersOfRoleFlow(role: UserRole): Flow<List<UserEntity>> = userDao.getUsersOfRoleFlow(role)
     suspend fun getUserById(userId: Int): UserEntity? = userDao.getUserById(userId)
     fun getUserByIdFlow(userId: Int): Flow<UserEntity?> = userDao.getUserByIdFlow(userId)
     suspend fun insertUser(user: UserEntity): Long = userDao.insertUser(user)

@@ -2,7 +2,6 @@ package com.example.ui.chat
 
 import android.text.format.DateUtils
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -26,6 +25,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.data.local.UserRole
 import com.example.data.local.entity.ChatEntity
 import com.example.data.local.entity.MessageEntity
 import com.example.data.local.entity.UserEntity
@@ -529,7 +529,7 @@ fun MyClientsScreen(
     val chats by viewModel.activeChats.collectAsStateWithLifecycle()
     val participants by viewModel.chatParticipants.collectAsStateWithLifecycle()
     val currentUser by viewModel.currentUser.collectAsStateWithLifecycle()
-    val isPsych = currentUser?.role == "PSYCHOLOGIST" || currentUser?.role == "STUDENT"
+    val isPsych = currentUser?.role == UserRole.PSYCHOLOGIST || currentUser?.role == UserRole.PSYCHOLOGY_STUDENT
 
     Scaffold(
         topBar = {

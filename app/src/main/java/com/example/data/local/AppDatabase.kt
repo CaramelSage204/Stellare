@@ -4,6 +4,8 @@ import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.TypeConverter
+import androidx.room.TypeConverters
 import com.example.data.local.dao.*
 import com.example.data.local.entity.*
 
@@ -21,6 +23,8 @@ import com.example.data.local.entity.*
     version = 6,
     exportSchema = false
 )
+
+@TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun userDao(): UserDao
     abstract fun chatDao(): ChatDao
@@ -48,5 +52,17 @@ abstract class AppDatabase : RoomDatabase() {
                 instance
             }
         }
+    }
+}
+
+class Converters {
+    @TypeConverter
+    fun fromUserRole(value: UserRole): String {
+        return value.value
+    }
+
+    @TypeConverter
+    fun toUserRole(value: String): UserRole {
+        return UserRole.valueOf(value)
     }
 }

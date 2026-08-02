@@ -1,5 +1,6 @@
 package com.example.data.seed
 
+import com.example.data.local.UserRole
 import com.example.data.local.entity.*
 import com.example.data.repository.*
 import kotlinx.coroutines.flow.first
@@ -12,7 +13,7 @@ class DemoDataSeeder(
     private val walletRepository: WalletRepository
 ) {
     suspend fun prepopulateMockDataIfNeeded() {
-        val existing = userRepository.getUsersOfRoleFlow("PSYCHOLOGIST").first()
+        val existing = userRepository.getUsersOfRoleFlow(UserRole.PSYCHOLOGIST).first()
         if (existing.isNotEmpty()) return
 
         // 1. Insert Mock Psychologists
@@ -23,7 +24,7 @@ class DemoDataSeeder(
             gender = "Kobieta",
             phone = "+48 501 234 567",
             email = "anna.nowak@wektor.pl",
-            role = "PSYCHOLOGIST",
+            role = UserRole.PSYCHOLOGIST,
             isVerified = true,
             qualifications = "Magister Psychologii UJ",
             specializations = "Rodzina, Depresja, Lęki",
@@ -41,7 +42,7 @@ class DemoDataSeeder(
             gender = "Mężczyzna",
             phone = "+48 602 345 678",
             email = "igor.k@student.pl",
-            role = "STUDENT",
+            role = UserRole.PSYCHOLOGY_STUDENT,
             isVerified = false,
             qualifications = "Student 4. roku UW",
             specializations = "Ogólny, Praca, Stres",
@@ -59,7 +60,7 @@ class DemoDataSeeder(
             gender = "Kobieta",
             phone = "+48 703 456 789",
             email = "m.wisniewska@phd.pl",
-            role = "PSYCHOLOGIST",
+            role = UserRole.PSYCHOLOGIST,
             isVerified = true,
             qualifications = "Doktorantka SWPS",
             specializations = "Życie intymne, Relacje, Emocje",
@@ -77,7 +78,7 @@ class DemoDataSeeder(
             gender = "Mężczyzna",
             phone = "+48 804 567 890",
             email = "p.zielinski@terapia.pl",
-            role = "PSYCHOLOGIST",
+            role = UserRole.PSYCHOLOGIST,
             isVerified = true,
             qualifications = "Certyfikowany Psychoterapeuta PTTPB",
             specializations = "Uzależnienia, Rodzina, Kryzysy",
@@ -96,7 +97,7 @@ class DemoDataSeeder(
             gender = "Mężczyzna",
             phone = "+48 905 678 901",
             email = "janusz.it@poczta.pl",
-            role = "PATIENT",
+            role = UserRole.PATIENT,
             bio = "Szukam wsparcia w związku z wypaleniem zawodowym w IT oraz przewlekłym stresem.",
             isCurrentUser = false
         )).toInt()
@@ -108,7 +109,7 @@ class DemoDataSeeder(
             gender = "Kobieta",
             phone = "+48 106 789 012",
             email = "julia.m@stud.pl",
-            role = "PATIENT",
+            role = UserRole.PATIENT,
             bio = "Zmagam się ze stanami lękowymi przed egzaminami oraz trudnościami w relacjach rówieśniczych.",
             isCurrentUser = false
         )).toInt()

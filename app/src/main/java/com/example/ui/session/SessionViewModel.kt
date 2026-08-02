@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.local.AppDatabase
+import com.example.data.local.UserRole
 import com.example.data.local.entity.UserEntity
 import com.example.data.repository.UserRepository
 import com.example.ui.navigation.Screen
@@ -62,7 +63,7 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
         gender: String,
         phone: String,
         email: String,
-        role: String,
+        role: UserRole,
         isVerified: Boolean = false,
         qualifications: String = "",
         specializations: String = "",
@@ -84,8 +85,8 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
                 qualifications = qualifications,
                 specializations = specializations,
                 pricePerSession = pricePerSession,
-                rating = if (role == "PSYCHOLOGIST") 5.0 else 0.0,
-                ratingCount = if (role == "PSYCHOLOGIST") 1 else 0,
+                rating = if (role == UserRole.PSYCHOLOGIST) 5.0 else 0.0,
+                ratingCount = if (role == UserRole.PSYCHOLOGIST) 1 else 0,
                 bio = bio,
                 isCurrentUser = true,
                 customPrices = customPrices
@@ -99,12 +100,12 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    fun loginUser(email: String, preferredRole: String? = null) {
+    fun loginUser(email: String, preferredRole: UserRole? = null) {
         viewModelScope.launch {
             userRepository.clearCurrentUser()
-            val allPsychologists = userRepository.getUsersOfRoleFlow("PSYCHOLOGIST").first()
-            val allPatients = userRepository.getUsersOfRoleFlow("PATIENT").first()
-            val allStudents = userRepository.getUsersOfRoleFlow("STUDENT").first()
+            val allPsychologists = userRepository.getUsersOfRoleFlow(UserRole.PSYCHOLOGIST).first()
+            val allPatients = userRepository.getUsersOfRoleFlow(UserRole.PATIENT).first()
+            val allStudents = userRepository.getUsersOfRoleFlow(UserRole.PSYCHOLOGY_STUDENT).first()
             val match = (allPsychologists + allPatients + allStudents).find { it.email.equals(email, ignoreCase = true) }
             
             if (match != null) {
@@ -112,7 +113,7 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
                     match.copy(
                         isCurrentUser = true,
                         role = preferredRole,
-                        isVerified = if (preferredRole == "PSYCHOLOGIST") true else match.isVerified
+                        isVerified = if (preferredRole == UserRole.PSYCHOLOGIST) true else match.isVerified
                     )
                 } else {
                     match.copy(isCurrentUser = true)
@@ -121,7 +122,7 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
             } else {
                 val isPsych = email.contains("psych", ignoreCase = true)
                 val isStud = email.contains("student", ignoreCase = true)
-                val detectedRole = if (isPsych) "PSYCHOLOGIST" else if (isStud) "STUDENT" else "PATIENT"
+                val detectedRole = if (isPsych) UserRole.PSYCHOLOGIST else if (isStud) UserRole.PSYCHOLOGY_STUDENT else UserRole.PATIENT
                 
                 val role = preferredRole ?: detectedRole
                 val newUser = UserEntity(
@@ -132,8 +133,8 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
                     phone = "+48 505 444 333",
                     email = email,
                     role = role,
-                    isVerified = role == "PSYCHOLOGIST",
-                    qualifications = if (role == "PSYCHOLOGIST") "Magister Psychologii" else if (role == "STUDENT") "Student 4. roku" else "",
+                    isVerified = role == UserRole.PSYCHOLOGIST,
+                    qualifications = if (role == UserRole.PSYCHOLOGIST) "Magister Psychologii" else if (role == UserRole.PSYCHOLOGY_STUDENT) "Student 4. roku" else "",
                     bio = "Zarejestrowany użytkownik platformy Wektor.",
                     isCurrentUser = true,
                     customPrices = ""

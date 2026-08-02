@@ -25,6 +25,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
+import com.example.data.local.UserRole
 import com.example.data.local.entity.UserEntity
 import com.example.ui.navigation.Screen
 
@@ -36,7 +37,7 @@ fun MainDashboardScreen(
     onNavigate: (Screen) -> Unit
 ) {
     val searchQuery by dashboardViewModel.searchQuery.collectAsStateWithLifecycle()
-    val roleFilter by dashboardViewModel.roleFilter.collectAsStateWithLifecycle() // "PSYCHOLOGIST" or "PATIENT"
+    val roleFilter by dashboardViewModel.roleFilter.collectAsStateWithLifecycle() // UserRole enum
     val isRefreshing by dashboardViewModel.isRefreshing.collectAsStateWithLifecycle()
     val favoritePsychologistsIds by dashboardViewModel.favoritePsychologistsIds.collectAsStateWithLifecycle()
 
@@ -111,31 +112,31 @@ fun MainDashboardScreen(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Button(
-                        onClick = { dashboardViewModel.setRoleFilter("PSYCHOLOGIST") },
+                        onClick = { dashboardViewModel.setRoleFilter(UserRole.PSYCHOLOGIST) },
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = if (roleFilter == "PSYCHOLOGIST") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
+                            containerColor = if (roleFilter == UserRole.PSYCHOLOGIST) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
                         ),
                         modifier = Modifier.weight(1f),
                         shape = RoundedCornerShape(12.dp)
                     ) {
                         Text(
                             "Szukaj Psychologa",
-                            color = if (roleFilter == "PSYCHOLOGIST") Color.Black else MaterialTheme.colorScheme.onSurface,
+                            color = if (roleFilter == UserRole.PSYCHOLOGIST) Color.Black else MaterialTheme.colorScheme.onSurface,
                             fontWeight = FontWeight.Bold
                         )
                     }
 
                     Button(
-                        onClick = { dashboardViewModel.setRoleFilter("PATIENT") },
+                        onClick = { dashboardViewModel.setRoleFilter(UserRole.PATIENT) },
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = if (roleFilter == "PATIENT") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
+                            containerColor = if (roleFilter == UserRole.PATIENT) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
                         ),
                         modifier = Modifier.weight(1f),
                         shape = RoundedCornerShape(12.dp)
                     ) {
                         Text(
                             "Szukaj Pacjenta",
-                            color = if (roleFilter == "PATIENT") Color.Black else MaterialTheme.colorScheme.onSurface,
+                            color = if (roleFilter == UserRole.PATIENT) Color.Black else MaterialTheme.colorScheme.onSurface,
                             fontWeight = FontWeight.Bold
                         )
                     }
@@ -320,7 +321,7 @@ fun MainDashboardScreen(
                         }
                     }
                 } else {
-                    if (roleFilter == "PSYCHOLOGIST") {
+                    if (roleFilter == UserRole.PSYCHOLOGIST) {
                         if (filteredPsychologists.isEmpty()) {
                             EmptyListPlaceholder(message = "Brak dostępnych psychologów spełniających kryteria.")
                         } else {
@@ -348,7 +349,7 @@ fun MainDashboardScreen(
                                 verticalArrangement = Arrangement.spacedBy(16.dp)
                             ) {
                                 items(filteredPatients) { patient ->
-                                    val isPsychologist = currentUser?.role == "PSYCHOLOGIST" || currentUser?.role == "STUDENT"
+                                    val isPsychologist = currentUser?.role == UserRole.PSYCHOLOGIST || currentUser?.role == UserRole.PSYCHOLOGY_STUDENT
                                     val isFav = favoritePsychologistsIds.contains(patient.id)
                                     PatientCard(
                                         patient = patient,
