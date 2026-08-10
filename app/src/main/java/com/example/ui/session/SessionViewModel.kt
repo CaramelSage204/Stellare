@@ -133,8 +133,7 @@ class SessionViewModel(application: Application) : AndroidViewModel(application)
                     phone = "+48 505 444 333",
                     email = email,
                     role = role,
-                    isVerified = role == UserRole.PSYCHOLOGIST,
-                    qualifications = if (role == UserRole.PSYCHOLOGIST) "Magister Psychologii" else if (role == UserRole.PSYCHOLOGY_STUDENT) "Student 4. roku" else "",
+                    isVerified = role == UserRole.PSYCHOLOGIST,                    qualifications = if (role == UserRole.PSYCHOLOGIST) "Magister Psychologii" else if (role == UserRole.PSYCHOLOGY_STUDENT) "Student 4. roku" else "",
                     bio = "Zarejestrowany użytkownik platformy Wektor.",
                     isCurrentUser = true,
                     customPrices = ""

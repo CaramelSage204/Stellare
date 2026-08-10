@@ -63,6 +63,6 @@ class Converters {
 
     @TypeConverter
     fun toUserRole(value: String): UserRole {
-        return UserRole.valueOf(value)
+        return UserRole.entries.find { it.value == value } ?: UserRole.PATIENT
     }
 }

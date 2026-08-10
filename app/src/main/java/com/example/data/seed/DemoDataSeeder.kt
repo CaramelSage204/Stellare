@@ -3,6 +3,8 @@ package com.example.data.seed
 import com.example.data.local.UserRole
 import com.example.data.local.entity.*
 import com.example.data.repository.*
+import java.text.SimpleDateFormat
+import java.util.*
 import kotlinx.coroutines.flow.first
 
 class DemoDataSeeder(
@@ -143,29 +145,39 @@ class DemoDataSeeder(
         chatRepository.insertNote(NoteEntity(chatId = chat1Id, title = "Plan działania", content = "1. Praktyka mindfullness 10 min dziennie.\n2. Rozmowa o granicach w pracy z managerem.\n3. Monitorowanie jakości snu."))
 
         // 5. Prepopulate Calendar appointments
+        val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault())
+        val calendar = Calendar.getInstance()
+        
+        // Helper function to get date relative to today
+        fun getRelativeDate(daysOffset: Int): String {
+            val cal = Calendar.getInstance()
+            cal.add(Calendar.DAY_OF_YEAR, daysOffset)
+            return sdf.format(cal.time)
+        }
+
         // Future booked appointment
         appointmentRepository.insertAppointment(
             AppointmentEntity(
                 psychologistId = p1Id,
                 patientId = pat1Id,
-                date = "2026-07-15",
+                date = getRelativeDate(1),
                 time = "10:00",
                 notes = "Kontynuacja tematu bezsenności i technik oddechowych.",
                 status = "BOOKED"
             )
         )
         // Future free slots for Anna Nowak
-        appointmentRepository.insertAppointment(AppointmentEntity(psychologistId = p1Id, date = "2026-07-15", time = "12:00", status = "FREE"))
-        appointmentRepository.insertAppointment(AppointmentEntity(psychologistId = p1Id, date = "2026-07-15", time = "15:30", status = "FREE"))
-        appointmentRepository.insertAppointment(AppointmentEntity(psychologistId = p1Id, date = "2026-07-16", time = "09:00", status = "FREE"))
-        appointmentRepository.insertAppointment(AppointmentEntity(psychologistId = p1Id, date = "2026-07-16", time = "11:00", status = "FREE"))
+        appointmentRepository.insertAppointment(AppointmentEntity(psychologistId = p1Id, date = getRelativeDate(1), time = "12:00", status = "FREE"))
+        appointmentRepository.insertAppointment(AppointmentEntity(psychologistId = p1Id, date = getRelativeDate(1), time = "15:30", status = "FREE"))
+        appointmentRepository.insertAppointment(AppointmentEntity(psychologistId = p1Id, date = getRelativeDate(2), time = "09:00", status = "FREE"))
+        appointmentRepository.insertAppointment(AppointmentEntity(psychologistId = p1Id, date = getRelativeDate(2), time = "11:00", status = "FREE"))
 
         // Booked appointment for Anna Nowak with Julia Malinowska
         appointmentRepository.insertAppointment(
             AppointmentEntity(
                 psychologistId = p1Id,
                 patientId = pat2Id,
-                date = "2026-07-17",
+                date = getRelativeDate(3),
                 time = "14:00",
                 notes = "Praca z lękiem przedegzaminacyjnym.",
                 status = "BOOKED"
@@ -177,7 +189,7 @@ class DemoDataSeeder(
             AppointmentEntity(
                 psychologistId = p1Id,
                 patientId = pat1Id,
-                date = "2026-07-08",
+                date = getRelativeDate(-2),
                 time = "15:00",
                 notes = "Sesja wstępna. Omówienie kontraktu terapeutycznego.",
                 status = "COMPLETED"
@@ -185,8 +197,8 @@ class DemoDataSeeder(
         )
 
         // Free slots for other psychologists
-        appointmentRepository.insertAppointment(AppointmentEntity(psychologistId = p2Id, date = "2026-07-15", time = "10:00", status = "FREE"))
-        appointmentRepository.insertAppointment(AppointmentEntity(psychologistId = p2Id, date = "2026-07-15", time = "13:00", status = "FREE"))
-        appointmentRepository.insertAppointment(AppointmentEntity(psychologistId = p3Id, date = "2026-07-16", time = "16:00", status = "FREE"))
+        appointmentRepository.insertAppointment(AppointmentEntity(psychologistId = p2Id, date = getRelativeDate(1), time = "10:00", status = "FREE"))
+        appointmentRepository.insertAppointment(AppointmentEntity(psychologistId = p2Id, date = getRelativeDate(1), time = "13:00", status = "FREE"))
+        appointmentRepository.insertAppointment(AppointmentEntity(psychologistId = p3Id, date = getRelativeDate(2), time = "16:00", status = "FREE"))
     }
 }
