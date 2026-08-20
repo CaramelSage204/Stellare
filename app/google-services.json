@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "818324884549",
+    "project_id": "stellare-a39ef",
+    "storage_bucket": "stellare-a39ef.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:818324884549:android:49e13d17d663284237e72c",
+        "android_client_info": {
+          "package_name": "com.example.stellare"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "818324884549-9eknc1v75v7o3j55bn29bgb3pnnulf9s.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.stellare",
+            "certificate_hash": "23f773156994470bcd437ac62c476e3b407db32f"
+          }
+        },
+        {
+          "client_id": "818324884549-c7i2ohrnv3ksb3f9u2jhtqd4spq97lim.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAtvK7Qee7awtN7UXpBlx0UkmS4BpalP4g"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "818324884549-c7i2ohrnv3ksb3f9u2jhtqd4spq97lim.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
