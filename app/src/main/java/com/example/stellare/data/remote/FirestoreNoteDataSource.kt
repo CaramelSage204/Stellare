@@ -24,10 +24,19 @@ class FirestoreNoteDataSource {
     }
 
     fun getNotesForChat(chatId: String): Flow<List<NoteModel>> = callbackFlow {
+        if (chatId.isEmpty()) {
+            trySend(emptyList())
+            return@callbackFlow
+        }
         val listener = collection
             .whereEqualTo("chatId", chatId)
             .orderBy("timestamp", Query.Direction.DESCENDING)
-            .addSnapshotListener { snap, _ ->
+            .addSnapshotListener { snap, error ->
+                if (error != null) {
+                    android.util.Log.e("FirestoreNoteDS", "Error fetching notes for chat $chatId: ${error.message}")
+                    close()
+                    return@addSnapshotListener
+                }
                 trySend(snap?.toObjects(NoteModel::class.java) ?: emptyList())
             }
         awaitClose { listener.remove() }

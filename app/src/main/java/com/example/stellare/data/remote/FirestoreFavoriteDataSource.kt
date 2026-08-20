@@ -13,9 +13,18 @@ class FirestoreFavoriteDataSource {
     private val collection = db.collection("favorites")
 
     fun getFavoritesForUser(userId: String): Flow<List<FavoriteModel>> = callbackFlow {
+        if (userId.isEmpty()) {
+            trySend(emptyList())
+            return@callbackFlow
+        }
         val listener = collection
             .whereEqualTo("userId", userId)
-            .addSnapshotListener { snap, _ ->
+            .addSnapshotListener { snap, error ->
+                if (error != null) {
+                    android.util.Log.e("FirestoreFavoriteDS", "Error fetching favorites for user $userId: ${error.message}")
+                    close()
+                    return@addSnapshotListener
+                }
                 trySend(snap?.toObjects(FavoriteModel::class.java) ?: emptyList())
             }
         awaitClose { listener.remove() }

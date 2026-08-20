@@ -2,6 +2,7 @@ package com.example.stellare.data.remote
 
 import com.example.stellare.data.model.ChatModel
 import com.google.firebase.Firebase
+import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.firestore
 import kotlinx.coroutines.channels.awaitClose
@@ -24,32 +25,42 @@ class FirestoreChatDataSource {
     }
 
     fun getChatsForUser(userId: String): Flow<List<ChatModel>> = callbackFlow {
-        // Firestore doesn't support logical OR in a single where clause for different fields easily without complex indexing or composite queries
-        // But for two fields like this, we can use 'whereAny' or just two queries. 
-        // For simplicity in this common chat pattern, we'll listen to one side or use a 'participants' array in a real app.
-        // However, sticking to the DAO pattern:
+        if (userId.isEmpty()) {
+            trySend(emptyList())
+            return@callbackFlow
+        }
         val listener = collection
-            .whereIn("psychologistId", listOf(userId))
+            .whereArrayContains("participants", userId)
             .orderBy("lastMessageTime", Query.Direction.DESCENDING)
-            .addSnapshotListener { snap, _ ->
-                // This is a limitation; in a real app, I'd use a 'participants' array and 'array-contains'.
-                // For now, I'll provide a version that matches the DAO's intent as closely as possible.
-                trySend(snap?.toObjects(ChatModel::class.java) ?: emptyList())
+            .addSnapshotListener { snap, error ->
+                if (error != null) {
+                    android.util.Log.e("FirestoreChat", "Error fetching chats for user $userId: ${error.message}", error)
+                    close() // Close the flow without an error to avoid crashing the app
+                    return@addSnapshotListener
+                }
+                val chats = snap?.toObjects(ChatModel::class.java) ?: emptyList()
+                trySend(chats)
             }
-        // Note: The above only gets chats where user is psychologist. 
-        // A better Firestore implementation would use .whereArrayContains("participantIds", userId)
         awaitClose { listener.remove() }
     }
 
     suspend fun getChatByParticipants(psychId: String, patientId: String): ChatModel? {
-        val snap = collection
-            .whereEqualTo("psychologistId", psychId)
-            .whereEqualTo("patientId", patientId)
-            .limit(1)
-            .get()
-            .await()
-        return snap.toObjects(ChatModel::class.java).firstOrNull()
+        return try {
+            val currentUserId = FirebaseAuth.getInstance().currentUser?.uid ?: return null
+            val searchId = if (currentUserId == psychId) psychId else patientId
+            val snap = collection
+                .whereArrayContains("participants", searchId)
+                .get()
+                .await()
+            snap.toObjects(ChatModel::class.java).firstOrNull {
+                it.participants.contains(psychId) && it.participants.contains(patientId)
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("FirestoreChat", "Error getting chat by participants", e)
+            null
+        }
     }
+
 
     suspend fun updateChat(chat: ChatModel) {
         collection.document(chat.chatId).set(chat).await()

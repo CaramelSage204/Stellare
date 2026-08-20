@@ -25,12 +25,18 @@ class FirestoreMessageDataSource {
     }
 
     fun getMessagesForChat(chatId: String): Flow<List<MessageModel>> = callbackFlow {
+        if (chatId.isEmpty()) {
+            trySend(emptyList())
+            return@callbackFlow
+        }
         val listener = collection
             .whereEqualTo("chatId", chatId)
             .orderBy("timestamp", Query.Direction.ASCENDING)
             .addSnapshotListener { snap, error ->
                 if (error != null) {
                     Log.e("FirestoreMessageDS", "getMessagesForChat failed for chatId=$chatId", error)
+                    close()
+                    return@addSnapshotListener
                 }
                 trySend(snap?.toObjects(MessageModel::class.java) ?: emptyList())
             }

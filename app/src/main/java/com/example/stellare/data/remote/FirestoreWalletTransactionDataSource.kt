@@ -14,10 +14,19 @@ class FirestoreWalletTransactionDataSource {
     private val collection = db.collection("wallet_transactions")
 
     fun getTransactionsForUser(userId: String): Flow<List<WalletTransactionModel>> = callbackFlow {
+        if (userId.isEmpty()) {
+            trySend(emptyList())
+            return@callbackFlow
+        }
         val listener = collection
             .whereEqualTo("userId", userId)
             .orderBy("timestamp", Query.Direction.DESCENDING)
-            .addSnapshotListener { snap, _ ->
+            .addSnapshotListener { snap, error ->
+                if (error != null) {
+                    android.util.Log.e("FirestoreWalletDS", "Error fetching transactions for user $userId: ${error.message}")
+                    close()
+                    return@addSnapshotListener
+                }
                 trySend(snap?.toObjects(WalletTransactionModel::class.java) ?: emptyList())
             }
         awaitClose { listener.remove() }

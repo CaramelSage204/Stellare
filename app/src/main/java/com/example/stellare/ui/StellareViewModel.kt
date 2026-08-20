@@ -216,9 +216,12 @@ class StellareViewModel(application: Application) : AndroidViewModel(application
 
     private suspend fun loadChatParticipants() {
         // Collect users and cache them for chat views
-        userRepository.getUsersOfRoleFlow(UserRole.PSYCHOLOGIST).combine(userRepository.getUsersOfRoleFlow(
-            UserRole.PATIENT)) { psychs, patients ->
-            psychs + patients
+        combine(
+            userRepository.getUsersOfRoleFlow(UserRole.PSYCHOLOGIST),
+            userRepository.getUsersOfRoleFlow(UserRole.PSYCHOLOGY_STUDENT),
+            userRepository.getUsersOfRoleFlow(UserRole.PATIENT)
+        ) { psychs, students, patients ->
+            psychs + students + patients
         }.collect { allUsers ->
             _chatParticipants.value = allUsers.associateBy { it.id }
         }
@@ -639,7 +642,7 @@ class StellareViewModel(application: Application) : AndroidViewModel(application
     fun startChatWith(otherUserId: String) {
         viewModelScope.launch {
             val curr = currentUser.value ?: return@launch
-            val isCurrentPsych = curr.role == UserRole.PSYCHOLOGIST
+            val isCurrentPsych = curr.role == UserRole.PSYCHOLOGIST || curr.role == UserRole.PSYCHOLOGY_STUDENT
             val psychId = if (isCurrentPsych) curr.id else otherUserId
             val patientId = if (isCurrentPsych) otherUserId else curr.id
 
@@ -652,6 +655,7 @@ class StellareViewModel(application: Application) : AndroidViewModel(application
                     chatId = generatedId,
                     psychologistId = psychId,
                     patientId = patientId,
+                    participants = listOf(psychId, patientId),
                     lastMessage = "Rozpoczęto nowy czat.",
                     lastMessageTime = System.currentTimeMillis()
                 )

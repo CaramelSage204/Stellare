@@ -24,10 +24,19 @@ class FirestoreReviewDataSource {
     }
 
     fun getReviewsForPsychologist(psychologistId: String): Flow<List<ReviewModel>> = callbackFlow {
+        if (psychologistId.isEmpty()) {
+            trySend(emptyList())
+            return@callbackFlow
+        }
         val listener = collection
             .whereEqualTo("psychologistId", psychologistId)
             .orderBy("timestamp", Query.Direction.DESCENDING)
-            .addSnapshotListener { snap, _ ->
+            .addSnapshotListener { snap, error ->
+                if (error != null) {
+                    android.util.Log.e("FirestoreReviewDS", "Error fetching reviews for psych $psychologistId: ${error.message}")
+                    close()
+                    return@addSnapshotListener
+                }
                 trySend(snap?.toObjects(ReviewModel::class.java) ?: emptyList())
             }
         awaitClose { listener.remove() }

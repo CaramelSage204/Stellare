@@ -23,28 +23,55 @@ class FirestoreAppointmentDataSource {
     }
 
     fun getAppointmentsForPsychologist(psychologistId: String): Flow<List<AppointmentModel>> = callbackFlow {
+        if (psychologistId.isEmpty()) {
+            trySend(emptyList())
+            return@callbackFlow
+        }
         val listener = collection
             .whereEqualTo("psychologistId", psychologistId)
-            .addSnapshotListener { snap, _ ->
+            .addSnapshotListener { snap, error ->
+                if (error != null) {
+                    android.util.Log.e("FirestoreAppointmentDS", "Error fetching appointments for psych $psychologistId: ${error.message}")
+                    close()
+                    return@addSnapshotListener
+                }
                 trySend(snap?.toObjects(AppointmentModel::class.java) ?: emptyList())
             }
         awaitClose { listener.remove() }
     }
 
     fun getAppointmentsForPatient(patientId: String): Flow<List<AppointmentModel>> = callbackFlow {
+        if (patientId.isEmpty()) {
+            trySend(emptyList())
+            return@callbackFlow
+        }
         val listener = collection
             .whereEqualTo("patientId", patientId)
-            .addSnapshotListener { snap, _ ->
+            .addSnapshotListener { snap, error ->
+                if (error != null) {
+                    android.util.Log.e("FirestoreAppointmentDS", "Error fetching appointments for patient $patientId: ${error.message}")
+                    close()
+                    return@addSnapshotListener
+                }
                 trySend(snap?.toObjects(AppointmentModel::class.java) ?: emptyList())
             }
         awaitClose { listener.remove() }
     }
 
     fun getFreeSlotsForPsychologist(psychologistId: String): Flow<List<AppointmentModel>> = callbackFlow {
+        if (psychologistId.isEmpty()) {
+            trySend(emptyList())
+            return@callbackFlow
+        }
         val listener = collection
             .whereEqualTo("psychologistId", psychologistId)
             .whereEqualTo("status", "FREE")
-            .addSnapshotListener { snap, _ ->
+            .addSnapshotListener { snap, error ->
+                if (error != null) {
+                    android.util.Log.e("FirestoreAppointmentDS", "Error fetching free slots for psych $psychologistId: ${error.message}")
+                    close()
+                    return@addSnapshotListener
+                }
                 trySend(snap?.toObjects(AppointmentModel::class.java) ?: emptyList())
             }
         awaitClose { listener.remove() }
