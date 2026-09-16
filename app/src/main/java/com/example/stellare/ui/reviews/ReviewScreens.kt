@@ -18,18 +18,18 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.example.stellare.ui.StellareViewModel
+import com.example.stellare.ui.profile.ProfileViewModel
 import com.example.stellare.ui.components.EmptyListPlaceholder
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MyRatingsScreen(
-    viewModel: StellareViewModel,
+    viewModel: ProfileViewModel,
     onBack: () -> Unit
 ) {
     val currentUser by viewModel.currentUser.collectAsStateWithLifecycle()
     val reviewsState = if (currentUser != null) {
-        viewModel.getReviewsForPsychologist(currentUser!!.id).collectAsStateWithLifecycle(emptyList())
+        viewModel.reviewsFor(currentUser!!.id).collectAsStateWithLifecycle(emptyList())
     } else {
         remember { mutableStateOf(emptyList()) }
     }

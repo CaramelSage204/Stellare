@@ -1,17 +1,17 @@
 package com.example.stellare.data.repository
 
-import com.example.stellare.data.remote.FirestoreChatDataSource
-import com.example.stellare.data.remote.FirestoreMessageDataSource
-import com.example.stellare.data.remote.FirestoreNoteDataSource
+import com.example.stellare.data.remote.ChatDataSource
+import com.example.stellare.data.remote.MessageDataSource
+import com.example.stellare.data.remote.NoteDataSource
 import com.example.stellare.data.model.ChatModel
 import com.example.stellare.data.model.MessageModel
 import com.example.stellare.data.model.NoteModel
 import kotlinx.coroutines.flow.Flow
 
 class ChatRepository(
-    private val chatDataSource: FirestoreChatDataSource,
-    private val messageDataSource: FirestoreMessageDataSource,
-    private val noteDataSource: FirestoreNoteDataSource
+    private val chatDataSource: ChatDataSource,
+    private val messageDataSource: MessageDataSource,
+    private val noteDataSource: NoteDataSource
 ) {
     // Chats
     fun getChatsForUserFlow(userId: String): Flow<List<ChatModel>> =
@@ -25,6 +25,8 @@ class ChatRepository(
 
     suspend fun updateChat(chat: ChatModel) =
         chatDataSource.updateChat(chat)
+
+    fun newChatId(): String = chatDataSource.newChatId()
 
     // Messages
     fun getMessagesForChatFlow(chatId: String): Flow<List<MessageModel>> =

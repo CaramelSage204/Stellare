@@ -1,8 +1,8 @@
 package com.example.stellare.data.repository
 
-import com.example.stellare.data.remote.FirebaseAuthDataSource
-import com.example.stellare.data.remote.FirestoreUserDataSource
-import com.example.stellare.data.remote.FirestoreFavoriteDataSource
+import com.example.stellare.data.remote.AuthDataSource
+import com.example.stellare.data.remote.UserDataSource
+import com.example.stellare.data.remote.FavoriteDataSource
 import com.example.stellare.data.model.UserModel
 import com.example.stellare.data.model.FavoriteModel
 import com.example.stellare.data.model.UserRole
@@ -11,19 +11,19 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 
 class UserRepository(
-    private val authDataSource: FirebaseAuthDataSource,
-    private val userDataSource: FirestoreUserDataSource,
-    private val favoriteDataSource: FirestoreFavoriteDataSource
+    private val authDataSource: AuthDataSource,
+    private val userDataSource: UserDataSource,
+    private val favoriteDataSource: FavoriteDataSource
 ) {
     // Users
-    fun getCurrentUserFlow(): Flow<UserModel?> = authDataSource.currentUser
-        .flatMapLatest { firebaseUser ->
-            if (firebaseUser != null) userDataSource.getUser(firebaseUser.uid)
+    fun getCurrentUserFlow(): Flow<UserModel?> = authDataSource.currentUserId
+        .flatMapLatest { uid ->
+            if (uid != null) userDataSource.getUser(uid)
             else flowOf(null)
         }
 
     suspend fun getCurrentUser(): UserModel? =
-        authDataSource.getCurrentUserOnce()?.uid?.let { userDataSource.getUserOnce(it) }
+        authDataSource.getCurrentUserIdOnce()?.let { userDataSource.getUserOnce(it) }
 
     fun getUsersFlow(role: String, currentUserId: String): Flow<List<UserModel>> =
         userDataSource.getAllByRoleExcluding(role, currentUserId)

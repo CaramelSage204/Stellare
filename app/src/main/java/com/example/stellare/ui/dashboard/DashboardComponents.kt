@@ -27,22 +27,23 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.example.stellare.data.model.UserModel
-import com.example.stellare.ui.StellareViewModel
+import com.example.stellare.ui.feed.FeedViewModel
 import com.example.stellare.ui.constants.ALL_SPECIALIZATIONS
 import java.util.Locale
 
 @Composable
 fun FiltersSelectionCard(
-    viewModel: StellareViewModel,
+    viewModel: FeedViewModel,
     onDismiss: () -> Unit
 ) {
-    val ageMin by viewModel.filterAgeMin.collectAsStateWithLifecycle()
-    val ageMax by viewModel.filterAgeMax.collectAsStateWithLifecycle()
-    val gender by viewModel.filterGender.collectAsStateWithLifecycle()
-    val spec by viewModel.filterSpec.collectAsStateWithLifecycle()
-    val verifiedOnly by viewModel.filterVerifiedOnly.collectAsStateWithLifecycle()
-    val priceMax by viewModel.filterPriceMax.collectAsStateWithLifecycle()
-    val minRating by viewModel.filterMinRating.collectAsStateWithLifecycle()
+    val filters by viewModel.filters.collectAsStateWithLifecycle()
+    val ageMin = filters.ageMin
+    val ageMax = filters.ageMax
+    val gender = filters.gender
+    val spec = filters.specialization
+    val verifiedOnly = filters.verifiedOnly
+    val priceMax = filters.priceMax
+    val minRating = filters.minRating
 
     var tempAgeMin by remember { mutableFloatStateOf(ageMin.toFloat()) }
     var tempAgeMax by remember { mutableFloatStateOf(ageMax.toFloat()) }
@@ -118,13 +119,15 @@ fun FiltersSelectionCard(
                 Button(
                     onClick = {
                         viewModel.updateFilters(
-                            tempAgeMin.toInt(),
-                            tempAgeMax.toInt(),
-                            tempGender,
-                            tempSpec,
-                            tempVerifiedOnly,
-                            tempPriceMax.toDouble(),
-                            tempMinRating.toDouble()
+                            filters.copy(
+                                ageMin = tempAgeMin.toInt(),
+                                ageMax = tempAgeMax.toInt(),
+                                gender = tempGender,
+                                specialization = tempSpec,
+                                verifiedOnly = tempVerifiedOnly,
+                                priceMax = tempPriceMax.toDouble(),
+                                minRating = tempMinRating.toDouble()
+                            )
                         )
                         onDismiss()
                     },

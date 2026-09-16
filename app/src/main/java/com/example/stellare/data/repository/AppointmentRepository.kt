@@ -1,10 +1,10 @@
 package com.example.stellare.data.repository
 
-import com.example.stellare.data.remote.FirestoreAppointmentDataSource
+import com.example.stellare.data.remote.AppointmentDataSource
 import com.example.stellare.data.model.AppointmentModel
 import kotlinx.coroutines.flow.Flow
 
-class AppointmentRepository(private val appointmentDataSource: FirestoreAppointmentDataSource) {
+class AppointmentRepository(private val appointmentDataSource: AppointmentDataSource) {
 
     fun getAppointmentsForPsychologistFlow(psychId: String): Flow<List<AppointmentModel>> =
         appointmentDataSource.getAppointmentsForPsychologist(psychId)
@@ -18,8 +18,15 @@ class AppointmentRepository(private val appointmentDataSource: FirestoreAppointm
     suspend fun insertAppointment(appointment: AppointmentModel) =
         appointmentDataSource.saveAppointment(appointment)
 
-    suspend fun bookAppointment(appointmentId: String, patientId: String, notes: String) =
-        appointmentDataSource.bookAppointment(appointmentId, patientId, notes)
+    suspend fun bookAppointment(
+        appointmentId: String,
+        patientId: String,
+        psychologistId: String,
+        priceCoins: Int,
+        notes: String
+    ) = appointmentDataSource.bookAppointmentAtomically(
+        appointmentId, patientId, psychologistId, priceCoins, notes
+    )
 
     suspend fun cancelBooking(appointmentId: String) =
         appointmentDataSource.cancelBooking(appointmentId)

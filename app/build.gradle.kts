@@ -38,8 +38,10 @@ android {
       isMinifyEnabled = false
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
       signingConfig = signingConfigs.getByName("release")
+      buildConfigField("boolean", "USE_FIREBASE_EMULATOR", "false")
     }
     debug {
+      buildConfigField("boolean", "USE_FIREBASE_EMULATOR", "true")
     }
   }
   compileOptions {
@@ -50,7 +52,12 @@ android {
     compose = true
     buildConfig = true
   }
-  testOptions { unitTests { isIncludeAndroidResources = true } }
+  testOptions {
+    unitTests {
+      isIncludeAndroidResources = true
+      isReturnDefaultValues = true
+    }
+  }
 }
 
 // Configure the Secrets Gradle Plugin to use .env and .env.example files
@@ -106,4 +113,6 @@ dependencies {
   implementation(libs.androidx.credentials.core)
   implementation(libs.androidx.credentials.play)
   implementation(libs.googleid)
+  testImplementation(libs.junit)
+  testImplementation(libs.kotlinx.coroutines.test)
 }

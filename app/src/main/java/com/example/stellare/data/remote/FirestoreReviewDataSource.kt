@@ -9,11 +9,11 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.tasks.await
 
-class FirestoreReviewDataSource {
+class FirestoreReviewDataSource : ReviewDataSource {
     private val db = Firebase.firestore
     private val collection = db.collection("reviews")
 
-    suspend fun saveReview(review: ReviewModel) {
+    override suspend fun saveReview(review: ReviewModel) {
         val id = if (review.reviewId.isEmpty()) {
             collection.document().id
         } else {
@@ -23,7 +23,22 @@ class FirestoreReviewDataSource {
         collection.document(id).set(reviewToSave).await()
     }
 
-    fun getReviewsForPsychologist(psychologistId: String): Flow<List<ReviewModel>> = callbackFlow {
+    override suspend fun saveReviewWithRating(
+        review: ReviewModel,
+        psychologistId: String,
+        newRating: Double,
+        newRatingCount: Int
+    ) {
+        val batch = db.batch()
+        batch.set(collection.document(review.reviewId), review)
+        batch.update(
+            db.collection("users").document(psychologistId),
+            mapOf("rating" to newRating, "ratingCount" to newRatingCount)
+        )
+        batch.commit().await()
+    }
+
+    override fun getReviewsForPsychologist(psychologistId: String): Flow<List<ReviewModel>> = callbackFlow {
         if (psychologistId.isEmpty()) {
             trySend(emptyList())
             return@callbackFlow
@@ -34,7 +49,6 @@ class FirestoreReviewDataSource {
             .addSnapshotListener { snap, error ->
                 if (error != null) {
                     android.util.Log.e("FirestoreReviewDS", "Error fetching reviews for psych $psychologistId: ${error.message}")
-                    close()
                     return@addSnapshotListener
                 }
                 trySend(snap?.toObjects(ReviewModel::class.java) ?: emptyList())

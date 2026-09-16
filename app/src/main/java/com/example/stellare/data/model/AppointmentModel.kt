@@ -7,5 +7,6 @@ data class AppointmentModel(
     val date: String = "",
     val time: String = "",
     val notes: String = "",
-    val status: String = "FREE"
+    val status: String = "FREE",
+    val priceCoins: Int = 0
 )

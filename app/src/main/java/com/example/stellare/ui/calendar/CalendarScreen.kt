@@ -1,6 +1,7 @@
 package com.example.stellare.ui.calendar
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -14,27 +15,33 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import coil.compose.AsyncImage
 import com.example.stellare.data.model.UserRole
-import com.example.stellare.ui.StellareViewModel
+import com.example.stellare.ui.chat.ChatViewModel
+import com.example.stellare.ui.profile.ProfileViewModel
 import com.example.stellare.ui.calendar.views.PatientCalendarView
 import com.example.stellare.ui.calendar.views.PsychologistCalendarView
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CalendarScreen(
-    viewModel: StellareViewModel,
+    viewModel: CalendarViewModel,
+    profileViewModel: ProfileViewModel,
+    chatViewModel: ChatViewModel,
+    onOpenProfileSheet: () -> Unit,
     onBack: () -> Unit
 ) {
-    val currentUser by viewModel.currentUser.collectAsStateWithLifecycle()
-    val chatParticipants by viewModel.chatParticipants.collectAsStateWithLifecycle()
+    val currentUser by profileViewModel.currentUser.collectAsStateWithLifecycle()
+    val chatParticipants by chatViewModel.participants.collectAsStateWithLifecycle()
 
     val isPsych = currentUser?.role == UserRole.PSYCHOLOGIST || currentUser?.role == UserRole.PSYCHOLOGY_STUDENT
-    val psychAppointments by viewModel.currentPsychologistAppointments.collectAsStateWithLifecycle()
-    val patientAppointments by viewModel.currentPatientAppointments.collectAsStateWithLifecycle()
+    val psychAppointments by viewModel.psychologistAppointments.collectAsStateWithLifecycle()
+    val patientAppointments by viewModel.patientAppointments.collectAsStateWithLifecycle()
 
     var showAddSlotDialog by remember { mutableStateOf(false) }
 
@@ -43,8 +50,38 @@ fun CalendarScreen(
             TopAppBar(
                 title = { Text("Kalendarz i Wizyty") },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Powrót")
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(onClick = onOpenProfileSheet) {
+                            val profileImageUri = currentUser?.profileImageUri
+                            if (!profileImageUri.isNullOrEmpty()) {
+                                AsyncImage(
+                                    model = profileImageUri,
+                                    contentDescription = "Avatar",
+                                    modifier = Modifier
+                                        .size(32.dp)
+                                        .clip(CircleShape)
+                                        .border(1.dp, MaterialTheme.colorScheme.primary, CircleShape),
+                                    contentScale = ContentScale.Crop
+                                )
+                            } else {
+                                Box(
+                                    modifier = Modifier
+                                        .size(32.dp)
+                                        .clip(CircleShape)
+                                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = currentUser?.firstName?.firstOrNull()?.toString()?.uppercase() ?: "?",
+                                        color = MaterialTheme.colorScheme.primary,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                        }
+                        IconButton(onClick = onBack) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Powrót")
+                        }
                     }
                 },
                 actions = {
@@ -131,15 +168,15 @@ fun CalendarScreen(
                         viewModel.addFreeSlot(date, time)
                         showAddSlotDialog = false
                     },
-                    onCompleteAppointment = { viewModel.completeAppointment(it) },
-                    onCancelAppointment = { viewModel.cancelAppointmentBooking(it) },
-                    onDeleteAppointment = { viewModel.deleteAppointmentSlot(it) }
+                    onCompleteAppointment = { viewModel.complete(it) },
+                    onCancelAppointment = { viewModel.cancel(it) },
+                    onDeleteAppointment = { viewModel.deleteSlot(it) }
                 )
             } else {
                 PatientCalendarView(
                     appointments = patientAppointments,
                     participants = chatParticipants,
-                    onCancelAppointment = { viewModel.cancelAppointmentBooking(it) }
+                    onCancelAppointment = { viewModel.cancel(it) }
                 )
             }
         }

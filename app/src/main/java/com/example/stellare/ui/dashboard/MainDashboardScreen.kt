@@ -27,28 +27,37 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.example.stellare.data.model.UserRole
 import com.example.stellare.data.model.UserModel
-import com.example.stellare.ui.StellareViewModel
-import com.example.stellare.ui.navigation.Screen
+import com.example.stellare.ui.auth.AuthViewModel
+import com.example.stellare.ui.chat.ChatViewModel
+import com.example.stellare.ui.feed.FeedViewModel
+import com.example.stellare.ui.profile.ProfileViewModel
+import kotlinx.coroutines.launch
 
 @Composable
 fun MainDashboardScreen(
-    viewModel: StellareViewModel,
+    feedViewModel: FeedViewModel,
+    profileViewModel: ProfileViewModel,
+    authViewModel: AuthViewModel,
+    chatViewModel: ChatViewModel,
     currentUser: UserModel?,
-    onOpenDrawer: () -> Unit,
-    onNavigate: (Screen) -> Unit
+    onOpenProfileSheet: () -> Unit,
+    onPsychologistSelected: (String) -> Unit,
+    onShowChats: () -> Unit,
+    onChatOpened: (String) -> Unit
 ) {
-    val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
-    val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
-    val favoritePsychologistsIds by viewModel.favoritePsychologistsIds.collectAsStateWithLifecycle()
+    val filters by feedViewModel.filters.collectAsStateWithLifecycle()
+    val searchQuery = filters.query
+    val favoritePsychologistsIds by feedViewModel.favoriteIds.collectAsStateWithLifecycle()
 
-    val filteredPsychologists by viewModel.filteredPsychologists.collectAsStateWithLifecycle()
-    val filteredPatients by viewModel.filteredPatients.collectAsStateWithLifecycle()
+    val filteredPsychologists by feedViewModel.psychologists.collectAsStateWithLifecycle()
+    val filteredPatients by feedViewModel.patients.collectAsStateWithLifecycle()
 
     var showFiltersSheet by remember { mutableStateOf(false) }
     var showWriteOfferDialog by remember { mutableStateOf(false) }
     var showNotificationsDialog by remember { mutableStateOf(false) }
     var activeTutorialStep by remember { mutableIntStateOf(0) }
-    val showTutorialPrompt by viewModel.showTutorialPrompt.collectAsStateWithLifecycle()
+    val showTutorialPrompt by authViewModel.showTutorialPrompt.collectAsStateWithLifecycle()
+    val coroutineScope = rememberCoroutineScope()
 
     Box(modifier = Modifier.fillMaxSize()) {
         Scaffold(
@@ -62,7 +71,7 @@ fun MainDashboardScreen(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    IconButton(onClick = onOpenDrawer) {
+                    IconButton(onClick = onOpenProfileSheet) {
                         val profileImageUri = currentUser?.profileImageUri
                         if (!profileImageUri.isNullOrEmpty()) {
                             AsyncImage(
@@ -101,7 +110,7 @@ fun MainDashboardScreen(
                     IconButton(onClick = { showNotificationsDialog = true }) {
                         Icon(Icons.Default.Notifications, contentDescription = "Powiadomienia", tint = MaterialTheme.colorScheme.primary)
                     }
-                    IconButton(onClick = { onNavigate(Screen.ChatList) }) {
+                    IconButton(onClick = onShowChats) {
                         Icon(Icons.Default.ChatBubbleOutline, contentDescription = "Wiadomości")
                     }
                 }
@@ -137,12 +146,12 @@ fun MainDashboardScreen(
                 ) {
                     OutlinedTextField(
                         value = searchQuery,
-                        onValueChange = { viewModel.updateSearchQuery(it) },
+                        onValueChange = { feedViewModel.updateQuery(it) },
                         placeholder = { Text("Wyszukaj po imieniu, frazie...") },
                         leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Szukaj") },
                         trailingIcon = {
                             if (searchQuery.isNotEmpty()) {
-                                IconButton(onClick = { viewModel.updateSearchQuery("") }) {
+                                IconButton(onClick = { feedViewModel.updateQuery("") }) {
                                     Icon(Icons.Default.Clear, contentDescription = "Clear")
                                 }
                             }
@@ -169,7 +178,7 @@ fun MainDashboardScreen(
                     }
                     Spacer(modifier = Modifier.width(8.dp))
                     IconButton(
-                        onClick = { viewModel.refreshData() },
+                        onClick = { feedViewModel.resetFilters() },
                         modifier = Modifier
                             .size(56.dp)
                             .background(
@@ -195,13 +204,13 @@ fun MainDashboardScreen(
             // Tutorial Invitation Dialog Prompt
             if (showTutorialPrompt) {
                 AlertDialog(
-                    onDismissRequest = { viewModel.setShowTutorialPrompt(false) },
+                    onDismissRequest = { authViewModel.dismissTutorialPrompt() },
                     title = { Text("Czy chcesz przejść szybki samouczek?") },
                     text = { Text("Dziękujemy za rejestrację w Stellare! Chcesz dowiedzieć się, jak otwierać swoje konto, pisać oferty, znajdować psychologów lub pacjentów, pisać notatki terapeutyczne oraz ustalić stawkę?") },
                     confirmButton = {
                         Button(
                             onClick = {
-                                viewModel.setShowTutorialPrompt(false)
+                                authViewModel.dismissTutorialPrompt()
                                 activeTutorialStep = 1
                             }
                         ) {
@@ -210,7 +219,7 @@ fun MainDashboardScreen(
                     },
                     dismissButton = {
                         OutlinedButton(
-                            onClick = { viewModel.setShowTutorialPrompt(false) }
+                            onClick = { authViewModel.dismissTutorialPrompt() }
                         ) {
                             Text("Pomiń", color = MaterialTheme.colorScheme.onSurface)
                         }
@@ -264,68 +273,54 @@ fun MainDashboardScreen(
                 // Filter dropdown expansion card if triggered
                 AnimatedVisibility(visible = showFiltersSheet) {
                     FiltersSelectionCard(
-                        viewModel = viewModel,
+                        viewModel = feedViewModel,
                         onDismiss = { showFiltersSheet = false }
                     )
                 }
 
-                if (isRefreshing) {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
-                            Spacer(modifier = Modifier.height(12.dp))
-                            Text(
-                                text = "Odświeżanie...",
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Medium
-                            )
+                val isPsychologist = currentUser?.role == UserRole.PSYCHOLOGIST || currentUser?.role == UserRole.PSYCHOLOGY_STUDENT
+                if (!isPsychologist) {
+                    // Patients see Psychologists
+                    if (filteredPsychologists.isEmpty()) {
+                        EmptyListPlaceholder(message = "Brak dostępnych psychologów spełniających kryteria.")
+                    } else {
+                        LazyColumn(
+                            contentPadding = PaddingValues(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
+                            items(filteredPsychologists) { psych ->
+                                val isFav = favoritePsychologistsIds.contains(psych.id)
+                                PsychologistCard(
+                                    psych = psych,
+                                    isFavorite = isFav,
+                                    onToggleFavorite = { feedViewModel.toggleFavorite(psych.id) },
+                                    onClick = { onPsychologistSelected(psych.id) }
+                                )
+                            }
                         }
                     }
                 } else {
-                    val isPsychologist = currentUser?.role == UserRole.PSYCHOLOGIST || currentUser?.role == UserRole.PSYCHOLOGY_STUDENT
-                    if (!isPsychologist) {
-                        // Patients see Psychologists
-                        if (filteredPsychologists.isEmpty()) {
-                            EmptyListPlaceholder(message = "Brak dostępnych psychologów spełniających kryteria.")
-                        } else {
-                            LazyColumn(
-                                contentPadding = PaddingValues(16.dp),
-                                verticalArrangement = Arrangement.spacedBy(16.dp)
-                            ) {
-                                items(filteredPsychologists) { psych ->
-                                    val isFav = favoritePsychologistsIds.contains(psych.id)
-                                    PsychologistCard(
-                                        psych = psych,
-                                        isFavorite = isFav,
-                                        onToggleFavorite = { viewModel.toggleFavorite(psych.id) },
-                                        onClick = { onNavigate(Screen.PsychologistDetail(psych.id)) }
-                                    )
-                                }
-                            }
-                        }
+                    // Psychologists see Patients
+                    if (filteredPatients.isEmpty()) {
+                        EmptyListPlaceholder(message = "Brak zgłoszeń od pacjentów w tym momencie.")
                     } else {
-                        // Psychologists see Patients
-                        if (filteredPatients.isEmpty()) {
-                            EmptyListPlaceholder(message = "Brak zgłoszeń od pacjentów w tym momencie.")
-                        } else {
-                            LazyColumn(
-                                contentPadding = PaddingValues(16.dp),
-                                verticalArrangement = Arrangement.spacedBy(16.dp)
-                            ) {
-                                items(filteredPatients) { patient ->
-                                    val isFav = favoritePsychologistsIds.contains(patient.id)
-                                    PatientCard(
-                                        patient = patient,
-                                        canChat = true, // Current user is a psychologist
-                                        isFavorite = isFav,
-                                        onToggleFavorite = { viewModel.toggleFavorite(patient.id) },
-                                        onStartChat = { viewModel.startChatWith(patient.id) }
-                                    )
-                                }
+                        LazyColumn(
+                            contentPadding = PaddingValues(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
+                            items(filteredPatients) { patient ->
+                                val isFav = favoritePsychologistsIds.contains(patient.id)
+                                PatientCard(
+                                    patient = patient,
+                                    canChat = true, // Current user is a psychologist
+                                    isFavorite = isFav,
+                                    onToggleFavorite = { feedViewModel.toggleFavorite(patient.id) },
+                                    onStartChat = {
+                                        coroutineScope.launch {
+                                            chatViewModel.openChatWith(patient.id)?.let { onChatOpened(it) }
+                                        }
+                                    }
+                                )
                             }
                         }
                     }
@@ -351,7 +346,19 @@ fun MainDashboardScreen(
                         currentUser = currentUser,
                         onDismiss = { showWriteOfferDialog = false },
                         onPublish = { f, l, a, g, s, p, b, q ->
-                            viewModel.publishOffer(f, l, a, g, s, p, b, q)
+                            profileViewModel.updateProfile(
+                                firstName = f,
+                                lastName = l,
+                                age = a,
+                                gender = g,
+                                bio = b,
+                                specializations = s,
+                                pricePerSession = p,
+                                customPrices = currentUser?.customPrices ?: "",
+                                profileImageUri = currentUser?.profileImageUri,
+                                qualifications = q
+                            )
+                            feedViewModel.updateQuery("")
                         }
                     )
                 }

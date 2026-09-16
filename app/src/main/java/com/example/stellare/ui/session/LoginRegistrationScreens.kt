@@ -33,12 +33,12 @@ import android.util.Log
 import androidx.compose.ui.platform.LocalView
 import androidx.credentials.CredentialManager
 import com.example.stellare.data.model.UserRole
-import com.example.stellare.ui.StellareViewModel
+import com.example.stellare.ui.auth.AuthViewModel
 import kotlinx.coroutines.launch
 
 @Composable
 fun RegistrationScreen(
-    viewModel: StellareViewModel,
+    viewModel: AuthViewModel,
     onBack: () -> Unit
 ) {
     var step by remember { mutableIntStateOf(1) }
@@ -543,7 +543,7 @@ fun RegistrationScreen(
                     // Finish Registration
                     if (email.isBlank() || password.isBlank()) return@Button
 
-                    viewModel.registerUser(
+                    viewModel.register(
                         firstName = firstName,
                         lastName = lastName,
                         age = ageString.toIntOrNull() ?: 0,
@@ -552,7 +552,6 @@ fun RegistrationScreen(
                         email = email,
                         password = password,
                         role = role,
-                        isVerified = if (role == UserRole.PSYCHOLOGIST || role == UserRole.PSYCHOLOGY_STUDENT) isDocumentScanned else false,
                         qualifications = if (role == UserRole.PSYCHOLOGIST) "$qualType SWPS" else if (role == UserRole.PSYCHOLOGY_STUDENT) "Student Psychologii $qualType" else "",
                         specializations = if (role == UserRole.PSYCHOLOGIST || role == UserRole.PSYCHOLOGY_STUDENT) "Rodzina, Ogólny, Praca" else "",
                         pricePerSession = if (role == UserRole.PSYCHOLOGIST || role == UserRole.PSYCHOLOGY_STUDENT) 120.0 else 0.0,
@@ -575,7 +574,7 @@ fun RegistrationScreen(
 
 @Composable
 fun LoginScreen(
-    viewModel: StellareViewModel,
+    viewModel: AuthViewModel,
     onBack: () -> Unit
 ) {
     var email by remember { mutableStateOf("") }
@@ -630,7 +629,7 @@ fun LoginScreen(
         )
 
         Button(
-            onClick = { viewModel.loginUser(email, password) },
+            onClick = { viewModel.login(email, password) },
             modifier = Modifier.fillMaxWidth().height(52.dp),
             shape = RoundedCornerShape(12.dp)
         ) {
@@ -647,7 +646,7 @@ fun LoginScreen(
 
 @Composable
 fun SocialAuthButtons(
-    viewModel: StellareViewModel
+    viewModel: AuthViewModel
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()

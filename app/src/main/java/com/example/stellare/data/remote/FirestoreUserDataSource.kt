@@ -8,14 +8,14 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.tasks.await
 
-class FirestoreUserDataSource {
+class FirestoreUserDataSource : UserDataSource {
     private val db = Firebase.firestore
 
-    suspend fun saveUser(user: UserModel) {
+    override suspend fun saveUser(user: UserModel) {
         db.collection("users").document(user.id).set(user).await()
     }
 
-    fun getUser(uid: String): Flow<UserModel?> = callbackFlow {
+    override fun getUser(uid: String): Flow<UserModel?> = callbackFlow {
         if (uid.isEmpty()) {
             trySend(null)
             return@callbackFlow
@@ -24,8 +24,6 @@ class FirestoreUserDataSource {
             .addSnapshotListener { snap, error ->
                 if (error != null) {
                     android.util.Log.e("FirestoreUserDS", "Error fetching user $uid: ${error.message}")
-                    // Don't close with error to prevent crash, just close the flow
-                    close()
                     return@addSnapshotListener
                 }
                 trySend(snap?.toObject(UserModel::class.java))
@@ -33,14 +31,12 @@ class FirestoreUserDataSource {
         awaitClose { listener.remove() }
     }
 
-    fun getAllByRole(role: String): Flow<List<UserModel>> = callbackFlow {
+    override fun getAllByRole(role: String): Flow<List<UserModel>> = callbackFlow {
         val listener = db.collection("users")
             .whereEqualTo("role", role)
             .addSnapshotListener { snap, error ->
                 if (error != null) {
                     android.util.Log.e("FirestoreUserDS", "Error fetching users by role $role: ${error.message}")
-                    // Don't close with error to prevent crash
-                    close()
                     return@addSnapshotListener
                 }
                 trySend(snap?.toObjects(UserModel::class.java) ?: emptyList())
@@ -48,7 +44,7 @@ class FirestoreUserDataSource {
         awaitClose { listener.remove() }
     }
 
-    suspend fun getUserOnce(uid: String): UserModel? {
+    override suspend fun getUserOnce(uid: String): UserModel? {
         if (uid.isEmpty()) return null
         return try {
             db.collection("users").document(uid).get().await()
@@ -59,14 +55,12 @@ class FirestoreUserDataSource {
         }
     }
 
-    fun getAllByRoleExcluding(role: String, excludeId: String): Flow<List<UserModel>> = callbackFlow {
+    override fun getAllByRoleExcluding(role: String, excludeId: String): Flow<List<UserModel>> = callbackFlow {
         val listener = db.collection("users")
             .whereEqualTo("role", role)
             .addSnapshotListener { snap, error ->
                 if (error != null) {
                     android.util.Log.e("FirestoreUserDS", "Error fetching users by role $role: ${error.message}")
-                    // Don't close with error to prevent crash
-                    close()
                     return@addSnapshotListener
                 }
                 val filtered = snap?.toObjects(UserModel::class.java)
