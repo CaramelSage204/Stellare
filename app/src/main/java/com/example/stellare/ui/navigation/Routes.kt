@@ -15,6 +15,7 @@ object Routes {
     const val MY_RATINGS = "ratings"
     const val MY_CLIENTS = "clients"
     const val FAQ = "faq"
+    const val POST_COMPOSER = "posts/new"
 
     private const val PSYCHOLOGIST_DETAIL_BASE = "psychologist"
     const val PSYCHOLOGIST_DETAIL = "$PSYCHOLOGIST_DETAIL_BASE/{psychologistId}"

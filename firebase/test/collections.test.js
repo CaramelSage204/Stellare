@@ -12,13 +12,18 @@ beforeEach(async () => {
   await seed(env, async (db) => {
     await setDoc(doc(db, 'users/psycholog'), {
       id: 'psycholog', role: 'PSYCHOLOGIST', isVerified: true, isAdmin: false,
-      coinsBalance: 0, rating: 5.0, ratingCount: 0,
+      coinsBalance: 0, rating: 5.0, ratingCount: 0, pricePerSession: 80,
     })
     await setDoc(doc(db, 'users/pacjent'), {
       id: 'pacjent', role: 'PATIENT', isVerified: false, isAdmin: false, coinsBalance: 100,
     })
+    // pricePerSession dopisane po Etapie 3, Zadaniu 1: reguła posts wiąże
+    // priceCoins ogłoszenia z pricePerSession autora (cenaZgodnaZProfilem);
+    // bez tego pola aktualizacja ogłoszenia intruza konczyla się bledem
+    // ewaluacji, a nie zamierzonym zachowaniem, ktore te testy sprawdzaja.
     await setDoc(doc(db, 'users/intruz'), {
       id: 'intruz', role: 'PATIENT', isVerified: false, isAdmin: false, coinsBalance: 0,
+      pricePerSession: 80,
     })
     await setDoc(doc(db, 'admins/szef'), {})
     await setDoc(doc(db, 'chats/czat1'), {
@@ -555,10 +560,13 @@ describe('ulubione', () => {
 describe('ogłoszenia', () => {
   it('autor publikuje własne ogłoszenie', async () => {
     const db = authedDb(env, 'psycholog')
+    // authorSnapshot.isVerified musi zgadzać się z users/psycholog (isVerified: true) —
+    // reguła posts to wymusza (snapshotPrawdziwy), pusty snapshot już nie wystarcza.
     await assertSucceeds(setDoc(doc(db, 'posts/p1'), {
       id: 'p1', authorId: 'psycholog', type: 'OFFERING_THERAPY',
       title: 'Terapia poznawczo-behawioralna', body: 'Zapraszam', tags: ['LEK'],
-      priceCoins: 80, createdAt: Date.now(), isActive: true, authorSnapshot: {},
+      priceCoins: 80, createdAt: Date.now(), isActive: true,
+      authorSnapshot: { isVerified: true },
     }))
   })
 

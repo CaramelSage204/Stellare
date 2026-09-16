@@ -1,5 +1,6 @@
 package com.example.stellare.ui.dashboard
 
+import android.text.format.DateUtils
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -26,11 +27,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
+import com.example.stellare.data.model.PostModel
+import com.example.stellare.data.model.PostType
 import com.example.stellare.data.model.UserModel
 import com.example.stellare.ui.feed.FeedViewModel
 import com.example.stellare.ui.constants.ALL_SPECIALIZATIONS
 import java.util.Locale
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun FiltersSelectionCard(
     viewModel: FeedViewModel,
@@ -44,6 +48,7 @@ fun FiltersSelectionCard(
     val verifiedOnly = filters.verifiedOnly
     val priceMax = filters.priceMax
     val minRating = filters.minRating
+    val tags = filters.tags
 
     var tempAgeMin by remember { mutableFloatStateOf(ageMin.toFloat()) }
     var tempAgeMax by remember { mutableFloatStateOf(ageMax.toFloat()) }
@@ -52,6 +57,7 @@ fun FiltersSelectionCard(
     var tempGender by remember { mutableStateOf(gender) }
     var tempSpec by remember { mutableStateOf(spec) }
     var tempVerifiedOnly by remember { mutableStateOf(verifiedOnly) }
+    var tempTags by remember { mutableStateOf(tags) }
 
     Card(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
@@ -112,6 +118,26 @@ fun FiltersSelectionCard(
                 }
             }
 
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Text("Tagi ogłoszeń", fontSize = 13.sp, fontWeight = FontWeight.Medium)
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
+            ) {
+                ALL_SPECIALIZATIONS.forEach { tag ->
+                    val isSelected = tempTags.contains(tag)
+                    SpecializationChip(
+                        text = tag,
+                        isSelected = isSelected,
+                        onClick = {
+                            tempTags = if (isSelected) tempTags - tag else tempTags + tag
+                        }
+                    )
+                }
+            }
+
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                 Checkbox(checked = tempVerifiedOnly, onCheckedChange = { tempVerifiedOnly = it })
                 Text("Tylko zweryfikowani", fontSize = 13.sp)
@@ -126,7 +152,8 @@ fun FiltersSelectionCard(
                                 specialization = tempSpec,
                                 verifiedOnly = tempVerifiedOnly,
                                 priceMax = tempPriceMax.toDouble(),
-                                minRating = tempMinRating.toDouble()
+                                minRating = tempMinRating.toDouble(),
+                                tags = tempTags
                             )
                         )
                         onDismiss()
@@ -293,6 +320,111 @@ fun PatientCard(
                     Icon(Icons.AutoMirrored.Filled.Chat, null, tint = Color.Black)
                     Spacer(modifier = Modifier.width(8.dp))
                     Text("Odpowiedz na zgłoszenie", color = Color.Black, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun PostCard(
+    post: PostModel,
+    onClick: () -> Unit
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                val imageUri = post.authorSnapshot.profileImageUri
+                if (!imageUri.isNullOrEmpty()) {
+                    AsyncImage(
+                        model = imageUri,
+                        contentDescription = null,
+                        modifier = Modifier.size(48.dp).clip(CircleShape),
+                        contentScale = ContentScale.Crop
+                    )
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .size(48.dp)
+                            .clip(CircleShape)
+                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = post.authorSnapshot.firstName.firstOrNull()?.toString() ?: "?",
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.width(12.dp))
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = "${post.authorSnapshot.firstName} ${post.authorSnapshot.lastName}",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.sp
+                        )
+                        if (post.authorSnapshot.isVerified) {
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Icon(Icons.Default.Verified, "Verified", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(14.dp))
+                        }
+                    }
+                    Text(
+                        text = DateUtils.getRelativeTimeSpanString(post.createdAt).toString(),
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                    )
+                }
+
+                if (post.type == PostType.OFFERING_THERAPY && post.priceCoins > 0) {
+                    Text(
+                        text = "${post.priceCoins} PLN",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 14.sp,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Text(post.title, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = post.body,
+                fontSize = 13.sp,
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis,
+                lineHeight = 18.sp
+            )
+
+            if (post.tags.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(12.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    post.tags.take(3).forEach { tag ->
+                        Surface(
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.08f),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text(
+                                text = tag,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
                 }
             }
         }

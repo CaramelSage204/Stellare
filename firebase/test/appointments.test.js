@@ -104,4 +104,25 @@ describe('appointments — cykl życia', () => {
       status: 'BOOKED', patientId: 'pacjent', notes: '',
     }))
   })
+
+  // Runda poprawek 3 — ujemna cena zamieniona z przypadku w zamiar: przy
+  // rezerwacji terminu z ujemnym priceCoins prawdziwy kod rezerwacji
+  // (bookAppointmentAtomically) rzeczywiscie probuje zwiekszyc saldo pacjenta.
+  // Dzis blokuja to niezwiazane z cena inwarianty kwota>0/amount>0 w
+  // users/wallet_transactions, ale Etap 5 ma przerobic receivesPaidTransfer()
+  // pod zwroty — nie mozna liczyc, ze tamten refaktor pamieta o tej ukrytej
+  // zaleznosci. priceCoins >= 0 wiaze to wprost przy zrodle.
+  it('nie da się wystawić terminu z ceną ujemną', async () => {
+    const db = authedDb(env, 'psycholog')
+    await assertFails(setDoc(doc(db, 'appointments/cenaUjemna'), {
+      ...wolnyTermin, appointmentId: 'cenaUjemna', priceCoins: -1,
+    }))
+  })
+
+  it('można wystawić darmowy termin (priceCoins = 0)', async () => {
+    const db = authedDb(env, 'psycholog')
+    await assertSucceeds(setDoc(doc(db, 'appointments/cenaZero'), {
+      ...wolnyTermin, appointmentId: 'cenaZero', priceCoins: 0,
+    }))
+  })
 })

@@ -1,5 +1,7 @@
 package com.example.stellare.ui.feed
 
+import com.example.stellare.data.model.PostModel
+
 data class FeedFilters(
     val query: String = "",
     val ageMin: Int = 18,
@@ -8,7 +10,8 @@ data class FeedFilters(
     val specialization: String = WSZYSTKIE,
     val verifiedOnly: Boolean = false,
     val priceMax: Double = 400.0,
-    val minRating: Double = 0.0
+    val minRating: Double = 0.0,
+    val tags: Set<String> = emptySet()
 ) {
     fun matches(user: com.example.stellare.data.model.UserModel): Boolean {
         val pasujeTekst = query.isEmpty() ||
@@ -23,6 +26,14 @@ data class FeedFilters(
         val pasujeOcena = user.rating >= minRating
         return pasujeTekst && pasujeWiek && pasujePlec && pasujeSpec &&
             pasujeWeryfikacja && pasujeCena && pasujeOcena
+    }
+
+    fun matchesPost(post: PostModel): Boolean {
+        val pasujeTekst = query.isBlank() ||
+            post.title.contains(query, ignoreCase = true) ||
+            post.body.contains(query, ignoreCase = true)
+        val pasujeTagi = tags.isEmpty() || post.tags.any { tags.contains(it) }
+        return pasujeTekst && pasujeTagi
     }
 
     companion object {

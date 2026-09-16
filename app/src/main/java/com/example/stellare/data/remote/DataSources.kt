@@ -5,6 +5,7 @@ import com.example.stellare.data.model.ChatModel
 import com.example.stellare.data.model.FavoriteModel
 import com.example.stellare.data.model.MessageModel
 import com.example.stellare.data.model.NoteModel
+import com.example.stellare.data.model.PostModel
 import com.example.stellare.data.model.ReviewModel
 import com.example.stellare.data.model.UserModel
 import com.example.stellare.data.model.WalletTransactionModel
@@ -84,4 +85,12 @@ interface ReviewDataSource {
         newRating: Double,
         newRatingCount: Int
     )
+}
+
+interface PostDataSource {
+    fun getActivePosts(type: String): Flow<List<PostModel>>
+    fun getPostsByAuthor(authorId: String): Flow<List<PostModel>>
+    suspend fun savePost(post: PostModel)
+    suspend fun deactivatePost(postId: String)
+    fun newPostId(): String
 }

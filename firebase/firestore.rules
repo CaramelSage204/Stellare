@@ -136,10 +136,21 @@ service cloud.firestore {
       allow read: if isSignedIn();
 
       // Termin wystawia wyłącznie psycholog, zawsze jako wolny.
+      //
+      // priceCoins >= 0 (Zadanie 1 Etapu 3, runda poprawek 3): cena ujemna
+      // sprawiłaby, że rezerwacja PRZYBLIŻAŁABY pacjentowi monety zamiast je
+      // pobierać. Dziś to i tak blokują kwota > 0 w receivesPaidTransfer()
+      // i amount > 0 w bookingCounterpartyEntry() (users/wallet_transactions) —
+      // ale to ochrona PRZYPADKOWA, niezwiązana z ceną. Etap 5 ma przerobić
+      // receivesPaidTransfer() pod zwroty (przepływ monet w drugą stronę),
+      // więc liczenie na to, że tamten refaktor pamięta o tej niewidzialnej
+      // zależności, jest złym zakładem. >= 0, nie > 0 — wolno wystawić
+      // darmowy termin.
       allow create: if isSignedIn()
         && request.resource.data.psychologistId == request.auth.uid
         && request.resource.data.status == 'FREE'
         && request.resource.data.patientId == null
+        && request.resource.data.priceCoins >= 0
         && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', '') in ['PSYCHOLOGIST', 'PSYCHOLOGY_STUDENT'];
 
       // Rezerwacja: tylko z wolnego terminu, tylko na siebie,
@@ -296,12 +307,108 @@ service cloud.firestore {
     }
 
     match /posts/{id} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn() && request.resource.data.authorId == request.auth.uid;
+      function autor() {
+        return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+      }
+
+      // Ten sam ksztalt co notatki kliniczne w Etapie 1: rozdzial rol byl
+      // egzekwowany tylko w interfejsie, wiec kazdy zalogowany odczytywal
+      // dane zapytaniem z pominieciem aplikacji. Ogloszenie pacjenta to z
+      // definicji opis problemu psychicznego (specyfikacja nazywa to wprost
+      // wymogiem prywatnosci) — nie moze byc czytelne dla innych pacjentow.
+      // Druga galaz jest konieczna: bez niej pacjent nie odczytalby WLASNEGO
+      // ogloszenia (lista "moje ogloszenia", dezaktywacja).
+      allow read: if isSignedIn() && (
+           resource.data.type == 'OFFERING_THERAPY'
+        || resource.data.authorId == request.auth.uid
+        || autor().role in ['PSYCHOLOGIST', 'PSYCHOLOGY_STUDENT']
+      );
+
+      // authorSnapshot jest pisany przez klienta, wiec pole isVerified w nim
+      // MUSI zgadzac sie z prawdziwym dokumentem autora — inaczej kazdy
+      // niezweryfikowany wystawi sobie pigulke "Zweryfikowany" bez dowodu.
+      // Rownosc w obie strony (nie tylko "<="), bo snapshot ma byc PRAWDZIWY,
+      // a nie tylko "nie lepszy niz w rzeczywistosci".
+      function snapshotPrawdziwy() {
+        return request.resource.data.authorSnapshot.get('isVerified', false)
+               == autor().get('isVerified', false);
+      }
+
+      function typZgodnyZRola() {
+        let rola = autor().role;
+        let typ = request.resource.data.type;
+        return (typ == 'OFFERING_THERAPY'
+                  && (rola == 'PSYCHOLOGIST' || rola == 'PSYCHOLOGY_STUDENT'))
+            || typ == 'SEEKING_PSYCHOLOGIST';
+      }
+
+      function cenaZgodnaZProfilem() {
+        return request.resource.data.type == 'SEEKING_PSYCHOLOGIST'
+          ? request.resource.data.get('priceCoins', 0) == 0
+          : request.resource.data.priceCoins == int(autor().pricePerSession);
+      }
+
+      // Lista jest sortowana malejaco po createdAt, wiec bez ograniczenia
+      // wystarczy wpisac rok 3000, zeby zostac na szczycie na zawsze. Okno,
+      // nie rownosc: klient wysyla System.currentTimeMillis(), a
+      // request.time.toMillis() jest czasem serwera — nigdy nie beda rowne.
+      function czasWiarygodny() {
+        return request.resource.data.createdAt <= request.time.toMillis()
+            && request.resource.data.createdAt > request.time.toMillis() - 300000;
+      }
+
+      // Bez listy dozwolonych pol autor dopisze do wlasnego ogloszenia dowolne
+      // nieprzewidziane pole (np. "pinned", "boost"). Dzis niegrozne, bo lista
+      // sortuje sie po createdAt (chronionym), ale wystarczy jedno przyszle
+      // sortowanie/filtr po nowym polu, zeby dziura otworzyla sie sama, bez
+      // zadnej zmiany w regule. Lista MUSI zgadzac sie z PostModel.kt —
+      // w tym z polem "id", ktore FirestorePostDataSource.savePost() zapisuje
+      // wprost przez .set(post) razem z reszta modelu.
+      function tylkoDozwolonePola() {
+        return request.resource.data.keys().hasOnly([
+          'id', 'authorId', 'type', 'title', 'body', 'tags',
+          'priceCoins', 'createdAt', 'isActive', 'authorSnapshot'
+        ]);
+      }
+
+      // Limity musza obowiazywac przy tworzeniu I przy edycji, inaczej autor
+      // wystawia poprawne ogloszenie, a potem rozdyma je bez ograniczen —
+      // ta sama klasa bledu, co zamkniete jedno wejscie i otwarte drugie
+      // (ocena w Etapie 1, create/update w Zadaniu 7 Etapu 2). Wspolna
+      // funkcja zamiast kopii warunkow w obu blokach — kopie rozjezdzaja sie
+      // przy kolejnej zmianie limitu.
+      function rozmiaryPoprawne() {
+        return request.resource.data.title.size() <= 120
+            && request.resource.data.body.size() <= 2000
+            && request.resource.data.tags.size() <= 5;
+      }
+
+      allow create: if isSignedIn()
+        && request.resource.data.authorId == request.auth.uid
+        && request.resource.data.isActive == true
+        && request.resource.data.title is string
+        && request.resource.data.title.size() > 0
+        && rozmiaryPoprawne()
+        && tylkoDozwolonePola()
+        && czasWiarygodny()
+        && typZgodnyZRola()
+        && cenaZgodnaZProfilem()
+        && snapshotPrawdziwy();
+
       allow update: if isSignedIn()
         && resource.data.authorId == request.auth.uid
-        && request.resource.data.authorId == resource.data.authorId;
-      allow delete: if isSignedIn() && resource.data.authorId == request.auth.uid;
+        && request.resource.data.authorId == resource.data.authorId
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.type == resource.data.type
+        && rozmiaryPoprawne()
+        && tylkoDozwolonePola()
+        && cenaZgodnaZProfilem()
+        && snapshotPrawdziwy();
+
+      // Bez serwera nie da sie odroznic "usuniete bo nieaktualne" od "usuniete
+      // bo ukrywa slad naduzycia" — dezaktywacja (isActive = false) zostawia
+      // dokument do wgladu, delete() bezpowrotnie go kasuje.
+      allow delete: if false;
     }
 
     // Wszystko, co nie zostało wymienione powyżej, jest zablokowane.

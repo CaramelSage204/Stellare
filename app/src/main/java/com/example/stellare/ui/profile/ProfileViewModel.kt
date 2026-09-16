@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.stellare.data.model.ReviewModel
 import com.example.stellare.data.model.UserModel
+import com.example.stellare.data.repository.PostRepository
 import com.example.stellare.data.repository.ReviewRepository
 import com.example.stellare.data.repository.UserRepository
 import kotlinx.coroutines.flow.Flow
@@ -15,7 +16,8 @@ import kotlinx.coroutines.launch
 
 class ProfileViewModel(
     private val userRepository: UserRepository,
-    private val reviewRepository: ReviewRepository
+    private val reviewRepository: ReviewRepository,
+    private val postRepository: PostRepository
 ) : ViewModel() {
 
     val currentUser: StateFlow<UserModel?> = userRepository.getCurrentUserFlow()
@@ -54,6 +56,7 @@ class ProfileViewModel(
                     qualifications = qualifications ?: current.qualifications
                 )
                 userRepository.updateUser(updated)
+                postRepository.syncOwnPostsWithAuthor(updated)
             } catch (e: Exception) {
                 Log.e("Profile", "Nie udalo sie zapisac profilu", e)
             }

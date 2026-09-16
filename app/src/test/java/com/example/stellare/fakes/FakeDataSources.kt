@@ -5,6 +5,7 @@ import com.example.stellare.data.model.ChatModel
 import com.example.stellare.data.model.FavoriteModel
 import com.example.stellare.data.model.MessageModel
 import com.example.stellare.data.model.NoteModel
+import com.example.stellare.data.model.PostModel
 import com.example.stellare.data.model.ReviewModel
 import com.example.stellare.data.model.UserModel
 import com.example.stellare.data.model.WalletTransactionModel
@@ -15,6 +16,7 @@ import com.example.stellare.data.remote.ChatDataSource
 import com.example.stellare.data.remote.FavoriteDataSource
 import com.example.stellare.data.remote.MessageDataSource
 import com.example.stellare.data.remote.NoteDataSource
+import com.example.stellare.data.remote.PostDataSource
 import com.example.stellare.data.remote.ReviewDataSource
 import com.example.stellare.data.remote.UserDataSource
 import com.example.stellare.data.remote.WalletDataSource
@@ -311,6 +313,37 @@ class FakeReviewDataSource(
             userDataSource.saveUser(psychologist.copy(rating = newRating, ratingCount = newRatingCount))
         }
     }
+}
+
+/**
+ * Atrapa źródła ogłoszeń. Musi być tak samo rygorystyczna jak
+ * [FirestorePostDataSource][com.example.stellare.data.remote.FirestorePostDataSource]:
+ * [getActivePosts] filtruje po `isActive`, a [deactivatePost] ustawia flagę
+ * zamiast usuwać dokument. Rozjazd atrapy ze źródłem w tym projekcie ugryzł
+ * już pięć razy, zawsze objawiając się zielonym testem, który niczego nie sprawdzał.
+ */
+class FakePostDataSource : PostDataSource {
+    val posts = MutableStateFlow<List<PostModel>>(emptyList())
+    private var licznik = 0
+
+    override fun getActivePosts(type: String): Flow<List<PostModel>> =
+        posts.map { list -> list.filter { it.isActive && it.type.name == type } }
+
+    override fun getPostsByAuthor(authorId: String): Flow<List<PostModel>> =
+        posts.map { list -> list.filter { it.authorId == authorId } }
+
+    override suspend fun savePost(post: PostModel) {
+        require(post.id.isNotEmpty()) { "Identyfikator ogłoszenia nie może być pusty." }
+        posts.value = posts.value.filterNot { it.id == post.id } + post
+    }
+
+    override suspend fun deactivatePost(postId: String) {
+        posts.value = posts.value.map {
+            if (it.id == postId) it.copy(isActive = false) else it
+        }
+    }
+
+    override fun newPostId(): String = "post-${++licznik}"
 }
 
 /**

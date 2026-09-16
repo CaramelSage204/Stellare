@@ -23,6 +23,8 @@ import com.example.stellare.ui.chat.ChatViewModel
 import com.example.stellare.ui.chat.MyClientsScreen
 import com.example.stellare.ui.dashboard.MainDashboardScreen
 import com.example.stellare.ui.feed.FeedViewModel
+import com.example.stellare.ui.posts.PostComposerScreen
+import com.example.stellare.ui.posts.PostViewModel
 import com.example.stellare.ui.profile.FAQScreen
 import com.example.stellare.ui.profile.ProfileEditScreen
 import com.example.stellare.ui.profile.ProfileViewModel
@@ -49,6 +51,7 @@ fun StellareNavHost(
     val walletViewModel: WalletViewModel = viewModel(factory = factory)
     val chatViewModel: ChatViewModel = viewModel(factory = factory)
     val profileViewModel: ProfileViewModel = viewModel(factory = factory)
+    val postViewModel: PostViewModel = viewModel(factory = factory)
 
     val authStatus by authViewModel.authStatus.collectAsStateWithLifecycle()
     val currentUser by profileViewModel.currentUser.collectAsStateWithLifecycle()
@@ -100,7 +103,7 @@ fun StellareNavHost(
         composable(Routes.FEED) {
             MainDashboardScreen(
                 feedViewModel = feedViewModel,
-                profileViewModel = profileViewModel,
+                postViewModel = postViewModel,
                 authViewModel = authViewModel,
                 chatViewModel = chatViewModel,
                 currentUser = currentUser,
@@ -108,8 +111,17 @@ fun StellareNavHost(
                 onPsychologistSelected = { psychologistId ->
                     navController.navigate(Routes.psychologistDetail(psychologistId))
                 },
+                onChatOpened = { chatId -> navController.navigate(Routes.chatRoom(chatId)) },
                 onShowChats = { navController.navigate(Routes.CHATS) },
-                onChatOpened = { chatId -> navController.navigate(Routes.chatRoom(chatId)) }
+                onNewPost = { navController.navigate(Routes.POST_COMPOSER) }
+            )
+        }
+
+        composable(Routes.POST_COMPOSER) {
+            PostComposerScreen(
+                viewModel = postViewModel,
+                profileViewModel = profileViewModel,
+                onBack = { navController.popBackStack() }
             )
         }
 

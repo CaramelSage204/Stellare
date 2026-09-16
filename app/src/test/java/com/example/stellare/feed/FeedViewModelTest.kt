@@ -1,6 +1,7 @@
 package com.example.stellare.feed
 
 import com.example.stellare.data.model.FavoriteModel
+import com.example.stellare.data.model.PostModel
 import com.example.stellare.data.model.UserModel
 import com.example.stellare.data.model.UserRole
 import com.example.stellare.data.repository.UserRepository
@@ -86,6 +87,58 @@ class FeedFiltersTest {
     fun `filtr specjalizacji odcina niepasujacych`() {
         assertTrue(FeedFilters(specialization = "Rodzina").matches(psycholog))
         assertFalse(FeedFilters(specialization = "Uzaleznienia").matches(psycholog))
+    }
+
+    private val ogloszenie = PostModel(
+        id = "post1",
+        title = "Szukam wsparcia psychologa",
+        body = "Potrzebuje pomocy w trudnym okresie",
+        tags = listOf("Psycholog kliniczny", "Interwent kryzysowy")
+    )
+
+    @Test
+    fun `pusty zbior tagow przepuszcza ogloszenie bez tagow`() {
+        assertTrue(FeedFilters(tags = emptySet()).matchesPost(ogloszenie.copy(tags = emptyList())))
+    }
+
+    @Test
+    fun `pusty zbior tagow przepuszcza ogloszenie z tagami`() {
+        assertTrue(FeedFilters(tags = emptySet()).matchesPost(ogloszenie))
+    }
+
+    @Test
+    fun `jeden wspolny tag przepuszcza`() {
+        assertTrue(FeedFilters(tags = setOf("Interwent kryzysowy")).matchesPost(ogloszenie))
+    }
+
+    @Test
+    fun `brak wspolnego tagu odrzuca`() {
+        assertFalse(FeedFilters(tags = setOf("Seksuolog")).matchesPost(ogloszenie))
+    }
+
+    @Test
+    fun `tekst wyszukiwania pasujacy do tytulu przepuszcza`() {
+        assertTrue(FeedFilters(query = "wsparcia").matchesPost(ogloszenie))
+    }
+
+    @Test
+    fun `tekst wyszukiwania pasujacy do tresci przepuszcza`() {
+        assertTrue(FeedFilters(query = "trudnym okresie").matchesPost(ogloszenie))
+    }
+
+    @Test
+    fun `tekst wyszukiwania niepasujacy do niczego odrzuca`() {
+        assertFalse(FeedFilters(query = "nieistniejaca fraza").matchesPost(ogloszenie))
+    }
+
+    @Test
+    fun `tagi i tekst dzialaja lacznie a nie na zasadzie alternatywy`() {
+        assertFalse(
+            FeedFilters(
+                tags = setOf("Interwent kryzysowy"),
+                query = "nieistniejaca fraza"
+            ).matchesPost(ogloszenie)
+        )
     }
 }
 

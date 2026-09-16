@@ -2,10 +2,12 @@ package com.example.stellare.profile
 
 import com.example.stellare.data.model.ReviewModel
 import com.example.stellare.data.model.UserModel
+import com.example.stellare.data.repository.PostRepository
 import com.example.stellare.data.repository.ReviewRepository
 import com.example.stellare.data.repository.UserRepository
 import com.example.stellare.fakes.FakeAuthDataSource
 import com.example.stellare.fakes.FakeFavoriteDataSource
+import com.example.stellare.fakes.FakePostDataSource
 import com.example.stellare.fakes.FakeReviewDataSource
 import com.example.stellare.fakes.FakeUserDataSource
 import com.example.stellare.ui.profile.ProfileViewModel
@@ -38,7 +40,8 @@ class ProfileViewModelTest {
     ): Pair<ProfileViewModel, FakeReviewDataSource> {
         val userRepository = UserRepository(FakeAuthDataSource(currentUserId), userDataSource, FakeFavoriteDataSource())
         val reviewRepository = ReviewRepository(reviewDataSource)
-        return ProfileViewModel(userRepository, reviewRepository) to reviewDataSource
+        val postRepository = PostRepository(FakePostDataSource())
+        return ProfileViewModel(userRepository, reviewRepository, postRepository) to reviewDataSource
     }
 
     @Test
@@ -84,7 +87,11 @@ class ProfileViewModelTest {
             listOf(UserModel(id = "u1", firstName = "Stary", lastName = "Nazwisko", age = 20, bio = "Stare bio"))
         )
         val userRepository = UserRepository(FakeAuthDataSource("u1"), userDataSource, FakeFavoriteDataSource())
-        val vm = ProfileViewModel(userRepository, ReviewRepository(FakeReviewDataSource(userDataSource)))
+        val vm = ProfileViewModel(
+            userRepository,
+            ReviewRepository(FakeReviewDataSource(userDataSource)),
+            PostRepository(FakePostDataSource())
+        )
 
         vm.updateProfile(
             firstName = "Nowy",

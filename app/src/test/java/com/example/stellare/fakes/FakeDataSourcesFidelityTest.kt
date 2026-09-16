@@ -3,10 +3,14 @@ package com.example.stellare.fakes
 import com.example.stellare.data.model.AppointmentModel
 import com.example.stellare.data.model.ChatModel
 import com.example.stellare.data.model.FavoriteModel
+import com.example.stellare.data.model.PostModel
+import com.example.stellare.data.model.PostType
 import com.example.stellare.data.model.UserModel
 import com.example.stellare.data.model.UserRole
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -92,5 +96,48 @@ class FakeDataSourcesFidelityTest {
             source.bookAppointmentAtomically("t1", "nieznany", "p1", 80, "")
         }.exceptionOrNull()
         assertTrue(wyjatek is IllegalStateException)
+    }
+
+    @Test
+    fun `getActivePosts pomija nieaktywne ogloszenia`() = runTest {
+        val source = FakePostDataSource()
+        source.savePost(
+            PostModel(id = "p1", type = PostType.SEEKING_PSYCHOLOGIST, isActive = true)
+        )
+        source.savePost(
+            PostModel(id = "p2", type = PostType.SEEKING_PSYCHOLOGIST, isActive = false)
+        )
+
+        val active = source.getActivePosts(PostType.SEEKING_PSYCHOLOGIST.name).first()
+
+        assertEquals(1, active.size)
+        assertEquals("p1", active.first().id)
+    }
+
+    @Test
+    fun `deactivatePost ustawia isActive na false zamiast usuwac dokument`() = runTest {
+        val source = FakePostDataSource()
+        source.savePost(PostModel(id = "p1", isActive = true))
+
+        source.deactivatePost("p1")
+
+        val post = source.posts.value.firstOrNull { it.id == "p1" }
+        assertNotNull(post)
+        assertFalse(post!!.isActive)
+    }
+
+    @Test
+    fun `savePost z pustym identyfikatorem rzuca wyjatek`() = runTest {
+        val source = FakePostDataSource()
+
+        val exception = try {
+            source.savePost(PostModel(id = "", title = "Bez id"))
+            null
+        } catch (e: IllegalArgumentException) {
+            e
+        }
+
+        assertNotNull(exception)
+        assertEquals(0, source.posts.value.size)
     }
 }

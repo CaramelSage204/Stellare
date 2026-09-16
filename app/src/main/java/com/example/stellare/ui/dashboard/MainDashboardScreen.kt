@@ -21,43 +21,49 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
+import com.example.stellare.data.model.PostModel
+import com.example.stellare.data.model.PostType
 import com.example.stellare.data.model.UserRole
 import com.example.stellare.data.model.UserModel
 import com.example.stellare.ui.auth.AuthViewModel
 import com.example.stellare.ui.chat.ChatViewModel
 import com.example.stellare.ui.feed.FeedViewModel
-import com.example.stellare.ui.profile.ProfileViewModel
+import com.example.stellare.ui.posts.PostViewModel
 import kotlinx.coroutines.launch
+
+private data class PostFeedTab(
+    val label: String,
+    val posts: List<PostModel>,
+    val emptyMessage: String
+)
 
 @Composable
 fun MainDashboardScreen(
     feedViewModel: FeedViewModel,
-    profileViewModel: ProfileViewModel,
+    postViewModel: PostViewModel,
     authViewModel: AuthViewModel,
     chatViewModel: ChatViewModel,
     currentUser: UserModel?,
     onOpenProfileSheet: () -> Unit,
     onPsychologistSelected: (String) -> Unit,
+    onChatOpened: (String) -> Unit,
     onShowChats: () -> Unit,
-    onChatOpened: (String) -> Unit
+    onNewPost: () -> Unit
 ) {
     val filters by feedViewModel.filters.collectAsStateWithLifecycle()
     val searchQuery = filters.query
-    val favoritePsychologistsIds by feedViewModel.favoriteIds.collectAsStateWithLifecycle()
+    val coroutineScope = rememberCoroutineScope()
 
-    val filteredPsychologists by feedViewModel.psychologists.collectAsStateWithLifecycle()
-    val filteredPatients by feedViewModel.patients.collectAsStateWithLifecycle()
+    val offeringPosts by postViewModel.offeringPosts.collectAsStateWithLifecycle()
+    val seekingPosts by postViewModel.seekingPosts.collectAsStateWithLifecycle()
 
     var showFiltersSheet by remember { mutableStateOf(false) }
-    var showWriteOfferDialog by remember { mutableStateOf(false) }
     var showNotificationsDialog by remember { mutableStateOf(false) }
+    var selectedFeedTab by remember { mutableIntStateOf(0) }
     var activeTutorialStep by remember { mutableIntStateOf(0) }
     val showTutorialPrompt by authViewModel.showTutorialPrompt.collectAsStateWithLifecycle()
-    val coroutineScope = rememberCoroutineScope()
 
     Box(modifier = Modifier.fillMaxSize()) {
         Scaffold(
@@ -107,36 +113,15 @@ fun MainDashboardScreen(
                         color = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.weight(1f)
                     )
+                    IconButton(onClick = onNewPost, modifier = Modifier.testTag("new_post_button")) {
+                        Icon(Icons.Default.Add, contentDescription = "Napisz ogłoszenie", tint = MaterialTheme.colorScheme.primary)
+                    }
                     IconButton(onClick = { showNotificationsDialog = true }) {
                         Icon(Icons.Default.Notifications, contentDescription = "Powiadomienia", tint = MaterialTheme.colorScheme.primary)
                     }
                     IconButton(onClick = onShowChats) {
                         Icon(Icons.Default.ChatBubbleOutline, contentDescription = "Wiadomości")
                     }
-                }
-
-
-                // Write offer button (below patient and psychologist)
-                Button(
-                    onClick = { showWriteOfferDialog = true },
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp).testTag("write_offer_button"),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.secondary
-                    )
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Edit,
-                        contentDescription = "Napisz ofertę",
-                        tint = Color.Black
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "Napisz ofertę",
-                        color = Color.Black,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 15.sp
-                    )
                 }
 
                 // Search Bar and Filters trigger Row
@@ -279,91 +264,73 @@ fun MainDashboardScreen(
                 }
 
                 val isPsychologist = currentUser?.role == UserRole.PSYCHOLOGIST || currentUser?.role == UserRole.PSYCHOLOGY_STUDENT
-                if (!isPsychologist) {
-                    // Patients see Psychologists
-                    if (filteredPsychologists.isEmpty()) {
-                        EmptyListPlaceholder(message = "Brak dostępnych psychologów spełniających kryteria.")
-                    } else {
-                        LazyColumn(
-                            contentPadding = PaddingValues(16.dp),
-                            verticalArrangement = Arrangement.spacedBy(16.dp)
-                        ) {
-                            items(filteredPsychologists) { psych ->
-                                val isFav = favoritePsychologistsIds.contains(psych.id)
-                                PsychologistCard(
-                                    psych = psych,
-                                    isFavorite = isFav,
-                                    onToggleFavorite = { feedViewModel.toggleFavorite(psych.id) },
-                                    onClick = { onPsychologistSelected(psych.id) }
-                                )
-                            }
+
+                val searchedOfferingPosts = offeringPosts.filter { filters.matchesPost(it) }
+                val searchedSeekingPosts = seekingPosts.filter { filters.matchesPost(it) }
+
+                val postFeedTabs = if (isPsychologist) {
+                    listOf(
+                        PostFeedTab(
+                            label = "Szukam psychologa",
+                            posts = searchedOfferingPosts,
+                            emptyMessage = "Brak dostępnych ogłoszeń psychologów spełniających kryteria."
+                        ),
+                        PostFeedTab(
+                            label = "Szukam pacjenta",
+                            posts = searchedSeekingPosts,
+                            emptyMessage = "Brak zgłoszeń od pacjentów w tym momencie."
+                        )
+                    )
+                } else {
+                    listOf(
+                        PostFeedTab(
+                            label = "Szukam psychologa",
+                            posts = searchedOfferingPosts,
+                            emptyMessage = "Brak dostępnych ogłoszeń psychologów spełniających kryteria."
+                        )
+                    )
+                }
+
+                val activeTabIndex = selectedFeedTab.coerceIn(0, postFeedTabs.lastIndex)
+                val activeTab = postFeedTabs[activeTabIndex]
+
+                if (postFeedTabs.size > 1) {
+                    TabRow(selectedTabIndex = activeTabIndex) {
+                        postFeedTabs.forEachIndexed { index, tab ->
+                            Tab(
+                                selected = index == activeTabIndex,
+                                onClick = { selectedFeedTab = index },
+                                text = { Text(tab.label) }
+                            )
                         }
                     }
+                }
+
+                if (activeTab.posts.isEmpty()) {
+                    EmptyListPlaceholder(message = activeTab.emptyMessage)
                 } else {
-                    // Psychologists see Patients
-                    if (filteredPatients.isEmpty()) {
-                        EmptyListPlaceholder(message = "Brak zgłoszeń od pacjentów w tym momencie.")
-                    } else {
-                        LazyColumn(
-                            contentPadding = PaddingValues(16.dp),
-                            verticalArrangement = Arrangement.spacedBy(16.dp)
-                        ) {
-                            items(filteredPatients) { patient ->
-                                val isFav = favoritePsychologistsIds.contains(patient.id)
-                                PatientCard(
-                                    patient = patient,
-                                    canChat = true, // Current user is a psychologist
-                                    isFavorite = isFav,
-                                    onToggleFavorite = { feedViewModel.toggleFavorite(patient.id) },
-                                    onStartChat = {
-                                        coroutineScope.launch {
-                                            chatViewModel.openChatWith(patient.id)?.let { onChatOpened(it) }
+                    LazyColumn(
+                        contentPadding = PaddingValues(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        items(activeTab.posts, key = { it.id }) { post ->
+                            PostCard(
+                                post = post,
+                                onClick = {
+                                    when (post.type) {
+                                        PostType.OFFERING_THERAPY -> onPsychologistSelected(post.authorId)
+                                        PostType.SEEKING_PSYCHOLOGIST -> coroutineScope.launch {
+                                            chatViewModel.openChatWith(post.authorId)?.let { onChatOpened(it) }
                                         }
                                     }
-                                )
-                            }
+                                }
+                            )
                         }
                     }
                 }
             }
         }
     }
-
-        // Write Offer Dialog
-        if (showWriteOfferDialog) {
-            Dialog(
-                onDismissRequest = { showWriteOfferDialog = false },
-                properties = DialogProperties(
-                    usePlatformDefaultWidth = false,
-                    decorFitsSystemWindows = true
-                )
-            ) {
-                Surface(
-                    modifier = Modifier.fillMaxSize(),
-                    color = MaterialTheme.colorScheme.background
-                ) {
-                    WriteOfferDialog(
-                        currentUser = currentUser,
-                        onDismiss = { showWriteOfferDialog = false },
-                        onPublish = { f, l, a, g, s, p, b, q ->
-                            profileViewModel.updateProfile(
-                                firstName = f,
-                                lastName = l,
-                                age = a,
-                                gender = g,
-                                bio = b,
-                                specializations = s,
-                                pricePerSession = p,
-                                customPrices = currentUser?.customPrices ?: "",
-                                profileImageUri = currentUser?.profileImageUri,
-                                qualifications = q
-                            )
-                            feedViewModel.updateQuery("")
-                        }
-                    )
-                }
-            }
-        }
 
         // Interactive Tutorial Overlay
         if (activeTutorialStep > 0) {
