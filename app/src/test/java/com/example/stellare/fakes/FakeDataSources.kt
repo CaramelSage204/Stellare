@@ -8,6 +8,8 @@ import com.example.stellare.data.model.NoteModel
 import com.example.stellare.data.model.PostModel
 import com.example.stellare.data.model.ReviewModel
 import com.example.stellare.data.model.UserModel
+import com.example.stellare.data.model.VerificationRequestModel
+import com.example.stellare.data.model.VerificationStatus
 import com.example.stellare.data.model.WalletTransactionModel
 import com.example.stellare.data.model.WalletTransactionType
 import com.example.stellare.data.remote.AppointmentDataSource
@@ -19,6 +21,7 @@ import com.example.stellare.data.remote.NoteDataSource
 import com.example.stellare.data.remote.PostDataSource
 import com.example.stellare.data.remote.ReviewDataSource
 import com.example.stellare.data.remote.UserDataSource
+import com.example.stellare.data.remote.VerificationDataSource
 import com.example.stellare.data.remote.WalletDataSource
 import com.example.stellare.data.repository.UserRepository
 import kotlinx.coroutines.flow.Flow
@@ -311,6 +314,56 @@ class FakeReviewDataSource(
         val psychologist = userDataSource.users.value.firstOrNull { it.id == psychologistId }
         if (psychologist != null) {
             userDataSource.saveUser(psychologist.copy(rating = newRating, ratingCount = newRatingCount))
+        }
+    }
+}
+
+/**
+ * Atrapa źródła zgłoszeń weryfikacyjnych. [decide] MUSI być tak samo rygorystyczna jak
+ * [FirestoreVerificationDataSource][com.example.stellare.data.remote.FirestoreVerificationDataSource]:
+ * zatwierdzenie ustawia status zgłoszenia ORAZ odznakę `isVerified` u użytkownika w jednym
+ * logicznym kroku (tam — jeden `batch()`), odrzucenie ustawia tylko status i notatkę, nie
+ * rusza odznaki. Rozjazd atrapy ze źródłem w tym projekcie ugryzł już pięć razy, zawsze
+ * objawiając się zielonym testem, który niczego nie sprawdzał. [userDataSource] jest
+ * wymagany, nie opcjonalny — opcjonalna zależność z domyślnym `null` pozwoliłaby [decide]
+ * po cichu pomijać ustawianie odznaki.
+ */
+class FakeVerificationDataSource(
+    private val userDataSource: FakeUserDataSource
+) : VerificationDataSource {
+    val requests = MutableStateFlow<List<VerificationRequestModel>>(emptyList())
+    private var reviewClock = 0L
+
+    override fun myRequest(uid: String): Flow<VerificationRequestModel?> =
+        requests.map { list -> list.firstOrNull { it.uid == uid } }
+
+    override fun pendingRequests(): Flow<List<VerificationRequestModel>> =
+        requests.map { list -> list.filter { it.status == VerificationStatus.PENDING } }
+
+    override suspend fun submit(request: VerificationRequestModel) {
+        require(request.uid.isNotEmpty()) { "Identyfikator zgłaszającego nie może być pusty." }
+        requests.value = requests.value.filterNot { it.uid == request.uid } + request
+    }
+
+    override suspend fun decide(uid: String, approved: Boolean, note: String) {
+        val status = if (approved) VerificationStatus.APPROVED else VerificationStatus.REJECTED
+        requests.value = requests.value.map {
+            if (it.uid == uid) {
+                it.copy(
+                    status = status,
+                    reviewedBy = "admin",
+                    reviewedAt = ++reviewClock,
+                    reviewNote = note
+                )
+            } else {
+                it
+            }
+        }
+        if (approved) {
+            val user = userDataSource.users.value.firstOrNull { it.id == uid }
+            if (user != null) {
+                userDataSource.saveUser(user.copy(isVerified = true))
+            }
         }
     }
 }

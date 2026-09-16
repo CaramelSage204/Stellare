@@ -7,6 +7,8 @@ import com.example.stellare.data.model.PostModel
 import com.example.stellare.data.model.PostType
 import com.example.stellare.data.model.UserModel
 import com.example.stellare.data.model.UserRole
+import com.example.stellare.data.model.VerificationRequestModel
+import com.example.stellare.data.model.VerificationStatus
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -139,5 +141,34 @@ class FakeDataSourcesFidelityTest {
 
         assertNotNull(exception)
         assertEquals(0, source.posts.value.size)
+    }
+
+    @Test
+    fun `decide zatwierdzone ustawia status APPROVED i odznake zweryfikowany`() = runTest {
+        val users = FakeUserDataSource(listOf(UserModel(id = "psych1", role = UserRole.PSYCHOLOGIST)))
+        val source = FakeVerificationDataSource(users)
+        source.submit(VerificationRequestModel(uid = "psych1", status = VerificationStatus.PENDING))
+
+        source.decide(uid = "psych1", approved = true, note = "")
+
+        val request = source.requests.value.first { it.uid == "psych1" }
+        assertEquals(VerificationStatus.APPROVED, request.status)
+        val user = users.users.value.first { it.id == "psych1" }
+        assertTrue(user.isVerified)
+    }
+
+    @Test
+    fun `decide odrzucone ustawia status i notatke, nie rusza odznaki`() = runTest {
+        val users = FakeUserDataSource(listOf(UserModel(id = "psych1", role = UserRole.PSYCHOLOGIST)))
+        val source = FakeVerificationDataSource(users)
+        source.submit(VerificationRequestModel(uid = "psych1", status = VerificationStatus.PENDING))
+
+        source.decide(uid = "psych1", approved = false, note = "Nieczytelny skan")
+
+        val request = source.requests.value.first { it.uid == "psych1" }
+        assertEquals(VerificationStatus.REJECTED, request.status)
+        assertEquals("Nieczytelny skan", request.reviewNote)
+        val user = users.users.value.first { it.id == "psych1" }
+        assertFalse(user.isVerified)
     }
 }

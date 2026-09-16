@@ -8,6 +8,7 @@ import com.example.stellare.data.model.NoteModel
 import com.example.stellare.data.model.PostModel
 import com.example.stellare.data.model.ReviewModel
 import com.example.stellare.data.model.UserModel
+import com.example.stellare.data.model.VerificationRequestModel
 import com.example.stellare.data.model.WalletTransactionModel
 import kotlinx.coroutines.flow.Flow
 
@@ -93,4 +94,11 @@ interface PostDataSource {
     suspend fun savePost(post: PostModel)
     suspend fun deactivatePost(postId: String)
     fun newPostId(): String
+}
+
+interface VerificationDataSource {
+    fun myRequest(uid: String): Flow<VerificationRequestModel?>
+    fun pendingRequests(): Flow<List<VerificationRequestModel>>
+    suspend fun submit(request: VerificationRequestModel)
+    suspend fun decide(uid: String, approved: Boolean, note: String)
 }

@@ -73,6 +73,35 @@ class PostViewModelReconciliationTest {
     }
 
     @Test
+    fun `zmiana zalogowanego uzytkownika w tej samej sesji wyzwala ponowne uzgodnienie dla nowego autora`() = runTest(dispatcher) {
+        val autor1 = UserModel(id = "psych1", role = UserRole.PSYCHOLOGIST, isVerified = false, pricePerSession = 100.0)
+        val autor2 = UserModel(id = "psych2", role = UserRole.PSYCHOLOGIST, isVerified = false, pricePerSession = 50.0)
+        val nieaktualny1 = PostModel(
+            id = "p1", authorId = autor1.id, type = PostType.OFFERING_THERAPY,
+            authorSnapshot = AuthorSnapshot(isVerified = false), priceCoins = 999
+        )
+        val nieaktualny2 = PostModel(
+            id = "p2", authorId = autor2.id, type = PostType.OFFERING_THERAPY,
+            authorSnapshot = AuthorSnapshot(isVerified = false), priceCoins = 999
+        )
+        val userDataSource = FakeUserDataSource(listOf(autor1, autor2))
+        val authDataSource = FakeAuthDataSource(autor1.id)
+        val userRepository = UserRepository(authDataSource, userDataSource, FakeFavoriteDataSource())
+        val postDataSource = RecordingPostDataSource(listOf(nieaktualny1, nieaktualny2))
+        PostViewModel(PostRepository(postDataSource), userRepository)
+
+        advanceUntilIdle()
+
+        assertEquals(100, postDataSource.posts.value.single { it.id == "p1" }.priceCoins)
+        assertEquals(999, postDataSource.posts.value.single { it.id == "p2" }.priceCoins)
+
+        authDataSource.userId.value = autor2.id
+        advanceUntilIdle()
+
+        assertEquals(50, postDataSource.posts.value.single { it.id == "p2" }.priceCoins)
+    }
+
+    @Test
     fun `bez zalogowanego uzytkownika uzgodnienie nie wykonuje zadnego zapytania o ogloszenia`() = runTest(dispatcher) {
         val userDataSource = FakeUserDataSource(emptyList())
         val userRepository = UserRepository(FakeAuthDataSource(null), userDataSource, FakeFavoriteDataSource())

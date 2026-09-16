@@ -291,17 +291,73 @@ service cloud.firestore {
     match /verificationRequests/{uid} {
       allow read: if isAdmin() || (isSignedIn() && request.auth.uid == uid);
 
-      // Zgłoszenie zawsze startuje jako oczekujące.
+      function zglaszajacy() {
+        return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+      }
+
+      // Lista pol, ktore wolno zapisac przy tworzeniu zgloszenia. MUSI
+      // zgadzac sie z VerificationRequestModel.kt (Zadanie 2): uid jest
+      // kluczem dokumentu, wiec go tu nie ma. reviewedBy/reviewedAt/reviewNote
+      // SA w tej liscie, bo model ma dla nich wartosci domyslne ('', 0, '') i
+      // realny zapis .set(model) wysyla je razem z reszta obiektu (patrz test
+      // "psycholog sklada wlasne zgloszenie" w collections.test.js — bez tych
+      // trzech kluczy ten zapis, uzywany od Etapu 1, zostalby odrzucony przez
+      // hasOnly, dokladnie tak jak ostrzegala notatka koordynatora o Etapie 3).
+      // Samo dopuszczenie kluczy nie wystarcza — patrz bezSladuRozpatrzenia().
+      function tylkoDozwolonePola() {
+        return request.resource.data.keys().hasOnly([
+          'docImageBase64', 'docType', 'status', 'submittedAt',
+          'reviewedBy', 'reviewedAt', 'reviewNote'
+        ]);
+      }
+
+      // hasOnly() dopuszcza KLUCZE reviewedBy/reviewedAt/reviewNote (bo model
+      // je zawsze wysyla), ale nie ich WARTOSCI — bez tej funkcji zglaszajacy
+      // dopisalby reviewedBy albo reviewNote przy tworzeniu i sfabrykowal slad
+      // rozpatrzenia wlasnego wniosku, zanim ktokolwiek go zobaczyl. Ta sama
+      // dziura, ktora zamknelismy w posts w Etapie 3, tylko przez pole, ktore
+      // hasOnly samo z siebie musi przepuscic.
+      function bezSladuRozpatrzenia() {
+        return request.resource.data.get('reviewedBy', '') == ''
+            && request.resource.data.get('reviewedAt', 0) == 0
+            && request.resource.data.get('reviewNote', '') == '';
+      }
+
+      // Panel sortuje kolejke po submittedAt, wiec bez okna czasu wystarczy
+      // wpisac rok 3000, zeby zawsze byc pierwszym (ten sam wzorzec co
+      // czasWiarygodny() w posts). Okno, nie rownosc: klient wysyla wlasny
+      // zegar, a request.time.toMillis() jest czasem serwera — nigdy nie
+      // beda rowne.
+      function czasWiarygodny() {
+        return request.resource.data.submittedAt <= request.time.toMillis()
+            && request.resource.data.submittedAt > request.time.toMillis() - 300000;
+      }
+
+      // Zgłoszenie zawsze startuje jako oczekujące, tworzy je wylacznie
+      // wlasciciel, o roli uprawnionej do weryfikacji kwalifikacji — pacjent
+      // nie sklada zgloszenia (nieszkodliwe dla przywileju, bo isVerified i
+      // tak przestawia wylacznie administrator, ale zasmieca panel).
       allow create: if isSignedIn()
         && request.auth.uid == uid
-        && request.resource.data.status == 'PENDING';
+        && request.resource.data.status == 'PENDING'
+        && zglaszajacy().role in ['PSYCHOLOGIST', 'PSYCHOLOGY_STUDENT']
+        && tylkoDozwolonePola()
+        && bezSladuRozpatrzenia()
+        && czasWiarygodny();
 
+      // Wznowienie po odrzuceniu (REJECTED -> PENDING) zapisuje pelny model
+      // przez .set() (FirestoreVerificationDataSource.submit(), Zadanie 2) —
+      // dokladnie ten sam ksztalt zapisu co przy tworzeniu, wiec dozwolone
+      // pola sa te same (tylkoDozwolonePola()). Bez tej listy zglaszajacy
+      // dopisalby przy wznowieniu dowolne nieprzewidziane pole — ta sama
+      // dziura co przy tworzeniu, tylko innym wejsciem.
       allow update: if isAdmin()
         || (isSignedIn() && request.auth.uid == uid
             && resource.data.status == 'REJECTED'
             && request.resource.data.status == 'PENDING'
             && request.resource.data.get('reviewedBy', '') == ''
-            && request.resource.data.get('reviewNote', '') == '');
+            && request.resource.data.get('reviewNote', '') == ''
+            && tylkoDozwolonePola());
 
       allow delete: if isAdmin();
     }

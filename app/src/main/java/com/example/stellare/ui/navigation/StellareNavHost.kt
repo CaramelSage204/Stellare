@@ -34,6 +34,9 @@ import com.example.stellare.ui.session.LoginScreen
 import com.example.stellare.ui.session.OnboardingScreen
 import com.example.stellare.ui.session.RegistrationScreen
 import com.example.stellare.ui.session.SplashScreen
+import com.example.stellare.ui.verification.AdminPanelScreen
+import com.example.stellare.ui.verification.VerificationScreen
+import com.example.stellare.ui.verification.VerificationViewModel
 import com.example.stellare.ui.wallet.WalletScreen
 import com.example.stellare.ui.wallet.WalletViewModel
 
@@ -52,6 +55,7 @@ fun StellareNavHost(
     val chatViewModel: ChatViewModel = viewModel(factory = factory)
     val profileViewModel: ProfileViewModel = viewModel(factory = factory)
     val postViewModel: PostViewModel = viewModel(factory = factory)
+    val verificationViewModel: VerificationViewModel = viewModel(factory = factory)
 
     val authStatus by authViewModel.authStatus.collectAsStateWithLifecycle()
     val currentUser by profileViewModel.currentUser.collectAsStateWithLifecycle()
@@ -180,6 +184,22 @@ fun StellareNavHost(
 
         composable(Routes.FAQ) {
             FAQScreen(onBack = { navController.popBackStack() })
+        }
+
+        composable(Routes.VERIFICATION) {
+            VerificationScreen(
+                viewModel = verificationViewModel,
+                onBack = { navController.popBackStack() }
+            )
+        }
+
+        composable(Routes.VERIFICATION_ADMIN) {
+            AdminPanelScreen(
+                viewModel = verificationViewModel,
+                profileViewModel = profileViewModel,
+                isAdmin = currentUser?.isAdmin == true,
+                onBack = { navController.popBackStack() }
+            )
         }
 
         composable(

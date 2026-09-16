@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Badge
 import androidx.compose.material.icons.filled.ExitToApp
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.HelpOutline
@@ -53,9 +54,6 @@ import com.example.stellare.ui.feed.FeedViewModel
 import com.example.stellare.ui.navigation.Routes
 import com.example.stellare.ui.profile.ProfileViewModel
 import kotlinx.coroutines.launch
-
-// Etap 4: ekran panelu weryfikacji jeszcze nie istnieje - pozycja jest celowo ukryta.
-private const val PANEL_WERYFIKACJI_DOSTEPNY = false
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -118,6 +116,11 @@ fun ProfileSheet(
                     label = "Moi klienci",
                     onClick = { nawigujIZamknij(Routes.MY_CLIENTS) }
                 )
+                ProfileSheetItem(
+                    icon = Icons.Filled.Badge,
+                    label = "Weryfikacja kwalifikacji",
+                    onClick = { nawigujIZamknij(Routes.VERIFICATION) }
+                )
             }
 
             ProfileSheetItem(
@@ -126,11 +129,11 @@ fun ProfileSheet(
                 onClick = { nawigujIZamknij(Routes.FAQ) }
             )
 
-            if (PANEL_WERYFIKACJI_DOSTEPNY && currentUser?.isAdmin == true) {
+            if (currentUser?.isAdmin == true) {
                 ProfileSheetItem(
                     icon = Icons.Filled.VerifiedUser,
                     label = "Panel weryfikacji",
-                    onClick = { }
+                    onClick = { nawigujIZamknij(Routes.VERIFICATION_ADMIN) }
                 )
             }
 
