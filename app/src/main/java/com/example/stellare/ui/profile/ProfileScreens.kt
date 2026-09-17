@@ -26,13 +26,13 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.example.stellare.data.model.UserRole
-import com.example.stellare.ui.StellareViewModel
+import com.example.stellare.ui.profile.ProfileViewModel
 import com.example.stellare.ui.dashboard.SpecializationChip
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun ProfileEditScreen(
-    viewModel: StellareViewModel,
+    viewModel: ProfileViewModel,
     onBack: () -> Unit
 ) {
     val currentUser by viewModel.currentUser.collectAsStateWithLifecycle()
@@ -498,6 +498,7 @@ fun ProfileEditScreen(
                         customPrices = formattedPricesString,
                         profileImageUri = profileImageUriString
                     )
+                    onBack()
                 },
                 modifier = Modifier.fillMaxWidth().height(50.dp)
             ) {

@@ -1,0 +1,475 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
+    function unchanged(field) {
+      return request.resource.data.get(field, null) == resource.data.get(field, null);
+    }
+
+    function onlyChanged(fields) {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(fields);
+    }
+
+    function jestUczestnikiem(chatId) {
+      return isSignedIn()
+        && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants;
+    }
+
+    // Doładowanie portfela. ŚWIADOME OGRANICZENIE: bez serwera nie da się
+    // potwierdzić, że płatność wpłynęła. Limit ogranicza skalę nadużycia.
+    function topUpWithinLimit() {
+      return request.resource.data.coinsBalance - resource.data.coinsBalance <= 1000;
+    }
+
+    // Zasada zachowania monet: ile przybywa odbiorcy, tyle ubywa płacącemu
+    // w tym samym zatwierdzeniu. getAfter() widzi stan po zapisie.
+    function receivesPaidTransfer() {
+      let kwota = request.resource.data.coinsBalance - resource.data.coinsBalance;
+      let platnik = /databases/$(database)/documents/users/$(request.auth.uid);
+      let przed = get(platnik).data.coinsBalance;
+      let po = getAfter(platnik).data;
+      return kwota is int
+        && kwota > 0
+        && po.coinsBalance == przed - kwota
+        && po.coinsBalance >= 0
+        && po.get('lastTransferTo', '') == resource.id
+        && po.get('lastTransferAmount', 0) == kwota;
+    }
+
+    // Wpis w cudzej księdze wolno utworzyć wyłącznie psychologowi, u którego
+    // zapisujący w tym samym zatwierdzeniu faktycznie rezerwuje wizytę.
+    //
+    // UWAGA na getAfter(): na dokumencie, którego commit NIE DOTYKA, zwraca stan bieżący.
+    // Samo `getAfter(x).status == 'BOOKED'` nie dowodzi więc, że rezerwacja dzieje się teraz —
+    // spełnia je każdy termin już zarezerwowany. Dlatego poniżej jest też `get(x).status == 'FREE'`:
+    // dopiero para get+getAfter z wymaganą RÓŻNICĄ dowodzi, że commit faktycznie zmienia dokument.
+    // Ten sam wzorzec, poprawnie zastosowany, jest w receivesPaidTransfer().
+    function bookingCounterpartyEntry() {
+      let wizyta = /databases/$(database)/documents/appointments/$(request.resource.data.appointmentId);
+      return request.resource.data.counterpartyId == request.auth.uid
+        && request.resource.data.amount > 0
+        && get(wizyta).data.status == 'FREE'
+        && getAfter(wizyta).data.patientId == request.auth.uid
+        && getAfter(wizyta).data.status == 'BOOKED'
+        && get(wizyta).data.psychologistId == request.resource.data.userId;
+    }
+
+    // Lista administratorów. Wpisy dodaje się wyłącznie ręcznie z konsoli Firebase.
+    match /admins/{uid} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    match /users/{uid} {
+      allow read: if isSignedIn();
+
+      allow create: if isSignedIn()
+        && request.auth.uid == uid
+        && request.resource.data.isVerified == false
+        && request.resource.data.get('isAdmin', false) == false
+        && request.resource.data.get('coinsBalance', 0) == 0
+        && request.resource.data.get('rating', 0) == 0
+        && request.resource.data.get('ratingCount', 0) == 0
+        && request.resource.data.role in ['PATIENT', 'PSYCHOLOGIST', 'PSYCHOLOGY_STUDENT'];
+
+      allow update: if isAdmin();
+
+      // Właściciel: dane opisowe dowolnie, przywileje nigdy,
+      // saldo w dół dowolnie, w górę tylko do limitu doładowania,
+      // deklaracja przelewu tylko przy realnym ubytku salda.
+      allow update: if isSignedIn()
+        && request.auth.uid == uid
+        && request.resource.data.get('isVerified', false) == resource.data.get('isVerified', false)
+        && unchanged('role')
+        && request.resource.data.get('isAdmin', false) == resource.data.get('isAdmin', false)
+        && request.resource.data.get('rating', 0) == resource.data.get('rating', 0)
+        && request.resource.data.get('ratingCount', 0) == resource.data.get('ratingCount', 0)
+        && (unchanged('coinsBalance')
+            || (request.resource.data.coinsBalance is int
+                && request.resource.data.coinsBalance >= 0
+                && (request.resource.data.coinsBalance < resource.data.coinsBalance
+                    || topUpWithinLimit())))
+        && (request.resource.data.get('lastTransferTo', null) == null
+            || (unchanged('lastTransferTo') && unchanged('lastTransferAmount'))
+            || request.resource.data.coinsBalance < resource.data.coinsBalance);
+
+      // Obca osoba może zwiększyć czyjeś saldo wyłącznie wtedy,
+      // gdy w tym samym zapisie jej własne spada o dokładnie tyle samo.
+      allow update: if isSignedIn()
+        && request.auth.uid != uid
+        && onlyChanged(['coinsBalance'])
+        && receivesPaidTransfer();
+
+      // Recenzja podbija ocenę ocenianego. Wymaga, żeby w tym samym zatwierdzeniu
+      // powstała recenzja o deterministycznym identyfikatorze <oceniany>_<recenzent>,
+      // wystawiona przez zapisującego. Bez tego dowolny zalogowany mógłby zmieniać
+      // cudzą ocenę bez śladu.
+      //
+      // UWAGA: samo getAfter() nie dowodzi, że commit UTWORZYŁ recenzję — spełnia je
+      // także recenzja istniejąca od dawna, co pozwalało podbijać ocenę w nieskończoność
+      // przez kolejne edycje własnej recenzji. Parę !exists()+existsAfter() dobrano
+      // właśnie po to, by wymusić utworzenie w tym samym zatwierdzeniu.
+      allow update: if isSignedIn()
+        && request.auth.uid != uid
+        && onlyChanged(['rating', 'ratingCount'])
+        && request.resource.data.ratingCount == resource.data.ratingCount + 1
+        && request.resource.data.rating >= 1
+        && request.resource.data.rating <= 5
+        && !exists(/databases/$(database)/documents/reviews/$(uid + '_' + request.auth.uid))
+        && existsAfter(/databases/$(database)/documents/reviews/$(uid + '_' + request.auth.uid))
+        && getAfter(/databases/$(database)/documents/reviews/$(uid + '_' + request.auth.uid)).data.reviewerId == request.auth.uid;
+
+      allow delete: if isSignedIn() && request.auth.uid == uid;
+    }
+
+    match /appointments/{id} {
+      allow read: if isSignedIn();
+
+      // Termin wystawia wyłącznie psycholog, zawsze jako wolny.
+      //
+      // priceCoins >= 0 (Zadanie 1 Etapu 3, runda poprawek 3): cena ujemna
+      // sprawiłaby, że rezerwacja PRZYBLIŻAŁABY pacjentowi monety zamiast je
+      // pobierać. Dziś to i tak blokują kwota > 0 w receivesPaidTransfer()
+      // i amount > 0 w bookingCounterpartyEntry() (users/wallet_transactions) —
+      // ale to ochrona PRZYPADKOWA, niezwiązana z ceną. Etap 5 ma przerobić
+      // receivesPaidTransfer() pod zwroty (przepływ monet w drugą stronę),
+      // więc liczenie na to, że tamten refaktor pamięta o tej niewidzialnej
+      // zależności, jest złym zakładem. >= 0, nie > 0 — wolno wystawić
+      // darmowy termin.
+      allow create: if isSignedIn()
+        && request.resource.data.psychologistId == request.auth.uid
+        && request.resource.data.status == 'FREE'
+        && request.resource.data.patientId == null
+        && request.resource.data.priceCoins >= 0
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', '') in ['PSYCHOLOGIST', 'PSYCHOLOGY_STUDENT'];
+
+      // Rezerwacja: tylko z wolnego terminu, tylko na siebie,
+      // nigdy na własny termin, bez podmiany psychologa, daty ani godziny.
+      allow update: if isSignedIn()
+        && resource.data.status == 'FREE'
+        && request.resource.data.status == 'BOOKED'
+        && request.resource.data.patientId == request.auth.uid
+        && request.resource.data.patientId != resource.data.psychologistId
+        && request.resource.data.psychologistId == resource.data.psychologistId
+        && request.resource.data.date == resource.data.date
+        && request.resource.data.time == resource.data.time
+        && request.resource.data.get('priceCoins', 0) == resource.data.get('priceCoins', 0);
+
+      // Odwołanie lub zakończenie — wyłącznie przez stronę umowy.
+      // Powrót do FREE zeruje pacjenta, COMPLETED/CANCELLED zachowuje dokładnie tego, który był.
+      allow update: if isSignedIn()
+        && (request.auth.uid == resource.data.psychologistId
+            || request.auth.uid == resource.data.patientId)
+        && request.resource.data.status in ['FREE', 'CANCELLED', 'COMPLETED']
+        && request.resource.data.psychologistId == resource.data.psychologistId
+        && request.resource.data.date == resource.data.date
+        && request.resource.data.time == resource.data.time
+        && request.resource.data.get('priceCoins', 0) == resource.data.get('priceCoins', 0)
+        && (request.resource.data.status == 'FREE'
+              ? request.resource.data.patientId == null
+              : request.resource.data.patientId == resource.data.patientId)
+        && (request.resource.data.status == 'COMPLETED'
+              ? resource.data.status == 'BOOKED'
+              : true);
+
+      // Skasować można tylko własny, niezajęty termin.
+      allow delete: if isSignedIn()
+        && request.auth.uid == resource.data.psychologistId
+        && resource.data.status == 'FREE';
+    }
+
+    match /wallet_transactions/{id} {
+      allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
+
+      allow create: if isSignedIn()
+        && request.resource.data.transactionId == id
+        && request.resource.data.amount is int
+        && request.resource.data.amount != 0
+        && request.resource.data.type in ['TOPUP', 'BOOKING_PAYMENT', 'BOOKING_EARNING', 'REFUND']
+        && (request.resource.data.userId == request.auth.uid
+            || bookingCounterpartyEntry());
+
+      // Księga jest niezmienna.
+      allow update, delete: if false;
+    }
+
+    match /chats/{chatId} {
+      allow read: if isSignedIn() && request.auth.uid in resource.data.participants;
+      // Czat zakłada wyłącznie jedna z dwóch stron, zawsze dokładnie we dwoje,
+      // a lista uczestników musi zgadzać się z parą psycholog-pacjent w dokumencie.
+      // Bez tego dowolny zalogowany tworzy czat z DWIEMA obcymi osobami i sobą,
+      // a getChatByParticipants() podstawia go ofierze zamiast prawdziwej rozmowy.
+      allow create: if isSignedIn()
+        && request.resource.data.participants.size() == 2
+        && request.resource.data.psychologistId != request.resource.data.patientId
+        && request.resource.data.psychologistId in request.resource.data.participants
+        && request.resource.data.patientId in request.resource.data.participants
+        && request.auth.uid in request.resource.data.participants;
+      allow update: if isSignedIn()
+        && request.auth.uid in resource.data.participants
+        && onlyChanged(['lastMessage', 'lastMessageTime']);
+      allow delete: if false;
+    }
+
+    match /messages/{id} {
+      allow read: if jestUczestnikiem(resource.data.chatId);
+      allow create: if request.resource.data.senderId == request.auth.uid
+        && jestUczestnikiem(request.resource.data.chatId);
+      allow update, delete: if false;
+    }
+
+    match /notes/{id} {
+      // Notatki zapisane przed dodaniem authorId nie mają tego pola — pierwszy
+      // człon warunku odczytu je przepuszcza, żeby nie osierocić starych danych.
+      // Nowe notatki widzi wyłącznie ich autor oraz psycholog prowadzący czat.
+      allow read: if jestUczestnikiem(resource.data.chatId)
+        && (resource.data.get('authorId', '') == ''
+            || resource.data.authorId == request.auth.uid
+            || request.auth.uid == get(/databases/$(database)/documents/chats/$(resource.data.chatId)).data.psychologistId);
+
+      allow create: if jestUczestnikiem(request.resource.data.chatId)
+        && request.resource.data.authorId == request.auth.uid;
+
+      // Wariant zapasowy tylko dla psychologa prowadzącego czat — jest domniemanym
+      // autorem notatek klinicznych sprzed migracji. Pacjent nadal ich nie rusza.
+      // authorId jest zamrożony przy update: resource.data.X mówi o stanie PRZED
+      // zapisem i nie broni przed zmianą samego X, więc trzeba to sprawdzić osobno.
+      allow update: if (resource.data.get('authorId', '') == request.auth.uid
+            || (resource.data.get('authorId', '') == ''
+                && request.auth.uid == get(/databases/$(database)/documents/chats/$(resource.data.chatId)).data.psychologistId))
+        && request.resource.data.chatId == resource.data.chatId
+        && request.resource.data.get('authorId', '') == resource.data.get('authorId', '');
+
+      allow delete: if resource.data.get('authorId', '') == request.auth.uid
+        || (resource.data.get('authorId', '') == ''
+            && request.auth.uid == get(/databases/$(database)/documents/chats/$(resource.data.chatId)).data.psychologistId);
+    }
+
+    match /reviews/{id} {
+      allow read: if isSignedIn();
+
+      allow create: if isSignedIn()
+        && request.resource.data.reviewerId == request.auth.uid
+        && id == request.resource.data.psychologistId + '_' + request.auth.uid;
+
+      // Treść wolno poprawić, ale nie wolno przepisać recenzji na kogo innego
+      // ani przenieść jej pod innego psychologa.
+      allow update: if isSignedIn()
+        && resource.data.reviewerId == request.auth.uid
+        && request.resource.data.reviewerId == resource.data.reviewerId
+        && request.resource.data.psychologistId == resource.data.psychologistId;
+
+      // USUNIĘCIE ZABRONIONE: skasowanie recenzji przywraca !exists() w regule oceny
+      // i pozwala podbić ocenę po raz kolejny — to samo obejście, o jeden commit dłuższe.
+      allow delete: if false;
+    }
+
+    // Identyfikator dokumentu ma postać "<userId>_<psychologistId>" i reguła to WYMUSZA
+    // (patrz FirestoreFavoriteDataSource.saveFavorite). Bez tego wymogu obcy zajmowałby
+    // identyfikator ofiary i trwale blokował jej możliwość dodania tego ulubionego.
+    match /favorites/{id} {
+      allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn()
+        && request.resource.data.userId == request.auth.uid
+        && id == request.auth.uid + '_' + request.resource.data.psychologistId;
+      allow update: if isSignedIn()
+        && resource.data.userId == request.auth.uid
+        && request.resource.data.userId == resource.data.userId;
+      allow delete: if isSignedIn() && resource.data.userId == request.auth.uid;
+    }
+
+    match /verificationRequests/{uid} {
+      allow read: if isAdmin() || (isSignedIn() && request.auth.uid == uid);
+
+      function zglaszajacy() {
+        return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+      }
+
+      // Lista pol, ktore wolno zapisac przy tworzeniu zgloszenia. MUSI
+      // zgadzac sie z VerificationRequestModel.kt (Zadanie 2): uid jest
+      // kluczem dokumentu, wiec go tu nie ma. reviewedBy/reviewedAt/reviewNote
+      // SA w tej liscie, bo model ma dla nich wartosci domyslne ('', 0, '') i
+      // realny zapis .set(model) wysyla je razem z reszta obiektu (patrz test
+      // "psycholog sklada wlasne zgloszenie" w collections.test.js — bez tych
+      // trzech kluczy ten zapis, uzywany od Etapu 1, zostalby odrzucony przez
+      // hasOnly, dokladnie tak jak ostrzegala notatka koordynatora o Etapie 3).
+      // Samo dopuszczenie kluczy nie wystarcza — patrz bezSladuRozpatrzenia().
+      function tylkoDozwolonePola() {
+        return request.resource.data.keys().hasOnly([
+          'docImageBase64', 'docType', 'status', 'submittedAt',
+          'reviewedBy', 'reviewedAt', 'reviewNote'
+        ]);
+      }
+
+      // hasOnly() dopuszcza KLUCZE reviewedBy/reviewedAt/reviewNote (bo model
+      // je zawsze wysyla), ale nie ich WARTOSCI — bez tej funkcji zglaszajacy
+      // dopisalby reviewedBy albo reviewNote przy tworzeniu i sfabrykowal slad
+      // rozpatrzenia wlasnego wniosku, zanim ktokolwiek go zobaczyl. Ta sama
+      // dziura, ktora zamknelismy w posts w Etapie 3, tylko przez pole, ktore
+      // hasOnly samo z siebie musi przepuscic.
+      function bezSladuRozpatrzenia() {
+        return request.resource.data.get('reviewedBy', '') == ''
+            && request.resource.data.get('reviewedAt', 0) == 0
+            && request.resource.data.get('reviewNote', '') == '';
+      }
+
+      // Panel sortuje kolejke po submittedAt, wiec bez okna czasu wystarczy
+      // wpisac rok 3000, zeby zawsze byc pierwszym (ten sam wzorzec co
+      // czasWiarygodny() w posts). Okno, nie rownosc: klient wysyla wlasny
+      // zegar, a request.time.toMillis() jest czasem serwera — nigdy nie
+      // beda rowne.
+      function czasWiarygodny() {
+        return request.resource.data.submittedAt <= request.time.toMillis()
+            && request.resource.data.submittedAt > request.time.toMillis() - 300000;
+      }
+
+      // Zgłoszenie zawsze startuje jako oczekujące, tworzy je wylacznie
+      // wlasciciel, o roli uprawnionej do weryfikacji kwalifikacji — pacjent
+      // nie sklada zgloszenia (nieszkodliwe dla przywileju, bo isVerified i
+      // tak przestawia wylacznie administrator, ale zasmieca panel).
+      allow create: if isSignedIn()
+        && request.auth.uid == uid
+        && request.resource.data.status == 'PENDING'
+        && zglaszajacy().role in ['PSYCHOLOGIST', 'PSYCHOLOGY_STUDENT']
+        && tylkoDozwolonePola()
+        && bezSladuRozpatrzenia()
+        && czasWiarygodny();
+
+      // Wznowienie po odrzuceniu (REJECTED -> PENDING) zapisuje pelny model
+      // przez .set() (FirestoreVerificationDataSource.submit(), Zadanie 2) —
+      // dokladnie ten sam ksztalt zapisu co przy tworzeniu, wiec dozwolone
+      // pola sa te same (tylkoDozwolonePola()). Bez tej listy zglaszajacy
+      // dopisalby przy wznowieniu dowolne nieprzewidziane pole — ta sama
+      // dziura co przy tworzeniu, tylko innym wejsciem.
+      allow update: if isAdmin()
+        || (isSignedIn() && request.auth.uid == uid
+            && resource.data.status == 'REJECTED'
+            && request.resource.data.status == 'PENDING'
+            && request.resource.data.get('reviewedBy', '') == ''
+            && request.resource.data.get('reviewNote', '') == ''
+            && tylkoDozwolonePola());
+
+      allow delete: if isAdmin();
+    }
+
+    match /posts/{id} {
+      function autor() {
+        return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+      }
+
+      // Ten sam ksztalt co notatki kliniczne w Etapie 1: rozdzial rol byl
+      // egzekwowany tylko w interfejsie, wiec kazdy zalogowany odczytywal
+      // dane zapytaniem z pominieciem aplikacji. Ogloszenie pacjenta to z
+      // definicji opis problemu psychicznego (specyfikacja nazywa to wprost
+      // wymogiem prywatnosci) — nie moze byc czytelne dla innych pacjentow.
+      // Druga galaz jest konieczna: bez niej pacjent nie odczytalby WLASNEGO
+      // ogloszenia (lista "moje ogloszenia", dezaktywacja).
+      allow read: if isSignedIn() && (
+           resource.data.type == 'OFFERING_THERAPY'
+        || resource.data.authorId == request.auth.uid
+        || autor().role in ['PSYCHOLOGIST', 'PSYCHOLOGY_STUDENT']
+      );
+
+      // authorSnapshot jest pisany przez klienta, wiec pole isVerified w nim
+      // MUSI zgadzac sie z prawdziwym dokumentem autora — inaczej kazdy
+      // niezweryfikowany wystawi sobie pigulke "Zweryfikowany" bez dowodu.
+      // Rownosc w obie strony (nie tylko "<="), bo snapshot ma byc PRAWDZIWY,
+      // a nie tylko "nie lepszy niz w rzeczywistosci".
+      function snapshotPrawdziwy() {
+        return request.resource.data.authorSnapshot.get('isVerified', false)
+               == autor().get('isVerified', false);
+      }
+
+      function typZgodnyZRola() {
+        let rola = autor().role;
+        let typ = request.resource.data.type;
+        return (typ == 'OFFERING_THERAPY'
+                  && (rola == 'PSYCHOLOGIST' || rola == 'PSYCHOLOGY_STUDENT'))
+            || typ == 'SEEKING_PSYCHOLOGIST';
+      }
+
+      function cenaZgodnaZProfilem() {
+        return request.resource.data.type == 'SEEKING_PSYCHOLOGIST'
+          ? request.resource.data.get('priceCoins', 0) == 0
+          : request.resource.data.priceCoins == int(autor().pricePerSession);
+      }
+
+      // Lista jest sortowana malejaco po createdAt, wiec bez ograniczenia
+      // wystarczy wpisac rok 3000, zeby zostac na szczycie na zawsze. Okno,
+      // nie rownosc: klient wysyla System.currentTimeMillis(), a
+      // request.time.toMillis() jest czasem serwera — nigdy nie beda rowne.
+      function czasWiarygodny() {
+        return request.resource.data.createdAt <= request.time.toMillis()
+            && request.resource.data.createdAt > request.time.toMillis() - 300000;
+      }
+
+      // Bez listy dozwolonych pol autor dopisze do wlasnego ogloszenia dowolne
+      // nieprzewidziane pole (np. "pinned", "boost"). Dzis niegrozne, bo lista
+      // sortuje sie po createdAt (chronionym), ale wystarczy jedno przyszle
+      // sortowanie/filtr po nowym polu, zeby dziura otworzyla sie sama, bez
+      // zadnej zmiany w regule. Lista MUSI zgadzac sie z PostModel.kt —
+      // w tym z polem "id", ktore FirestorePostDataSource.savePost() zapisuje
+      // wprost przez .set(post) razem z reszta modelu.
+      function tylkoDozwolonePola() {
+        return request.resource.data.keys().hasOnly([
+          'id', 'authorId', 'type', 'title', 'body', 'tags',
+          'priceCoins', 'createdAt', 'isActive', 'authorSnapshot'
+        ]);
+      }
+
+      // Limity musza obowiazywac przy tworzeniu I przy edycji, inaczej autor
+      // wystawia poprawne ogloszenie, a potem rozdyma je bez ograniczen —
+      // ta sama klasa bledu, co zamkniete jedno wejscie i otwarte drugie
+      // (ocena w Etapie 1, create/update w Zadaniu 7 Etapu 2). Wspolna
+      // funkcja zamiast kopii warunkow w obu blokach — kopie rozjezdzaja sie
+      // przy kolejnej zmianie limitu.
+      function rozmiaryPoprawne() {
+        return request.resource.data.title.size() <= 120
+            && request.resource.data.body.size() <= 2000
+            && request.resource.data.tags.size() <= 5;
+      }
+
+      allow create: if isSignedIn()
+        && request.resource.data.authorId == request.auth.uid
+        && request.resource.data.isActive == true
+        && request.resource.data.title is string
+        && request.resource.data.title.size() > 0
+        && rozmiaryPoprawne()
+        && tylkoDozwolonePola()
+        && czasWiarygodny()
+        && typZgodnyZRola()
+        && cenaZgodnaZProfilem()
+        && snapshotPrawdziwy();
+
+      allow update: if isSignedIn()
+        && resource.data.authorId == request.auth.uid
+        && request.resource.data.authorId == resource.data.authorId
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.type == resource.data.type
+        && rozmiaryPoprawne()
+        && tylkoDozwolonePola()
+        && cenaZgodnaZProfilem()
+        && snapshotPrawdziwy();
+
+      // Bez serwera nie da sie odroznic "usuniete bo nieaktualne" od "usuniete
+      // bo ukrywa slad naduzycia" — dezaktywacja (isActive = false) zostawia
+      // dokument do wgladu, delete() bezpowrotnie go kasuje.
+      allow delete: if false;
+    }
+
+    // Wszystko, co nie zostało wymienione powyżej, jest zablokowane.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

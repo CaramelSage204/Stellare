@@ -3,6 +3,7 @@ package com.example.stellare.ui.chat
 import android.text.format.DateUtils
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -21,29 +22,32 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import coil.compose.AsyncImage
 import com.example.stellare.data.model.UserRole
 import com.example.stellare.data.model.ChatModel
 import com.example.stellare.data.model.MessageModel
 import com.example.stellare.data.model.UserModel
-import com.example.stellare.ui.StellareViewModel
+import com.example.stellare.ui.profile.ProfileViewModel
 import com.example.stellare.ui.components.EmptyListPlaceholder
-import com.example.stellare.ui.navigation.Screen
 import kotlinx.coroutines.delay
 
 @Composable
 fun ChatRoomScreen(
-    viewModel: StellareViewModel,
+    viewModel: ChatViewModel,
+    profileViewModel: ProfileViewModel,
     chatId: String,
     onBack: () -> Unit
 ) {
-    val messages by viewModel.getMessagesForChat(chatId).collectAsStateWithLifecycle(emptyList())
-    val notes by viewModel.getNotesForChat(chatId).collectAsStateWithLifecycle(emptyList())
-    val participants by viewModel.chatParticipants.collectAsStateWithLifecycle()
-    val currentUser by viewModel.currentUser.collectAsStateWithLifecycle()
+    val messages by viewModel.messagesFor(chatId).collectAsStateWithLifecycle(emptyList())
+    val notes by viewModel.notesFor(chatId).collectAsStateWithLifecycle(emptyList())
+    val participants by viewModel.participants.collectAsStateWithLifecycle()
+    val chats by viewModel.chats.collectAsStateWithLifecycle()
+    val currentUser by profileViewModel.currentUser.collectAsStateWithLifecycle()
 
     var chatTab by remember { mutableStateOf("CHAT") } // "CHAT" or "NOTES"
     var showCallOverlay by remember { mutableStateOf<String?>(null) } // null, "VOICE", "VIDEO"
@@ -53,8 +57,7 @@ fun ChatRoomScreen(
     var chatSession by remember { mutableStateOf<ChatModel?>(null) }
     var otherUser by remember { mutableStateOf<UserModel?>(null) }
 
-    LaunchedEffect(chatId, participants, currentUser) {
-        val chats = viewModel.activeChats.value
+    LaunchedEffect(chatId, chats, participants, currentUser) {
         val chat = chats.find { it.chatId == chatId }
         chatSession = chat
         val currUser = currentUser
@@ -186,7 +189,7 @@ fun ChatRoomScreen(
                         IconButton(
                             onClick = {
                                 if (textInput.isNotEmpty()) {
-                                    viewModel.sendChatMessage(chatId, textInput)
+                                    viewModel.send(chatId, textInput)
                                     textInput = ""
                                 }
                             },
@@ -244,7 +247,7 @@ fun ChatRoomScreen(
                                 Button(
                                     onClick = {
                                         if (noteTitleInput.isNotEmpty() && noteContentInput.isNotEmpty()) {
-                                            viewModel.saveClientNote(chatId, noteTitleInput, noteContentInput)
+                                            viewModel.saveNote(chatId, noteTitleInput, noteContentInput)
                                             noteTitleInput = ""
                                             noteContentInput = ""
                                             isAddingNote = false
@@ -275,7 +278,7 @@ fun ChatRoomScreen(
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Text(note.title, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = MaterialTheme.colorScheme.primary)
-                                        IconButton(onClick = { viewModel.deleteClientNote(note.noteId) }) {
+                                        IconButton(onClick = { viewModel.deleteNote(note.noteId) }) {
                                             Icon(Icons.Default.Delete, "Delete", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp))
                                         }
                                     }
@@ -523,12 +526,15 @@ fun MessageBubble(message: MessageModel, isOutgoing: Boolean) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MyClientsScreen(
-    viewModel: StellareViewModel,
-    onBack: () -> Unit
+    viewModel: ChatViewModel,
+    profileViewModel: ProfileViewModel,
+    onOpenProfileSheet: () -> Unit,
+    onBack: () -> Unit,
+    onChatSelected: (String) -> Unit
 ) {
-    val chats by viewModel.activeChats.collectAsStateWithLifecycle()
-    val participants by viewModel.chatParticipants.collectAsStateWithLifecycle()
-    val currentUser by viewModel.currentUser.collectAsStateWithLifecycle()
+    val chats by viewModel.chats.collectAsStateWithLifecycle()
+    val participants by viewModel.participants.collectAsStateWithLifecycle()
+    val currentUser by profileViewModel.currentUser.collectAsStateWithLifecycle()
     val isPsych = currentUser?.role == UserRole.PSYCHOLOGIST || currentUser?.role == UserRole.PSYCHOLOGY_STUDENT
 
     Scaffold(
@@ -536,8 +542,38 @@ fun MyClientsScreen(
             TopAppBar(
                 title = { Text(if (isPsych) "Moje czaty i klienci" else "Moje czaty i psycholodzy") },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Powrót")
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(onClick = onOpenProfileSheet) {
+                            val profileImageUri = currentUser?.profileImageUri
+                            if (!profileImageUri.isNullOrEmpty()) {
+                                AsyncImage(
+                                    model = profileImageUri,
+                                    contentDescription = "Avatar",
+                                    modifier = Modifier
+                                        .size(32.dp)
+                                        .clip(CircleShape)
+                                        .border(1.dp, MaterialTheme.colorScheme.primary, CircleShape),
+                                    contentScale = ContentScale.Crop
+                                )
+                            } else {
+                                Box(
+                                    modifier = Modifier
+                                        .size(32.dp)
+                                        .clip(CircleShape)
+                                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = currentUser?.firstName?.firstOrNull()?.toString()?.uppercase() ?: "?",
+                                        color = MaterialTheme.colorScheme.primary,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                        }
+                        IconButton(onClick = onBack) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Powrót")
+                        }
                     }
                 }
             )
@@ -559,7 +595,7 @@ fun MyClientsScreen(
                     Card(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable { viewModel.navigateTo(Screen.ChatRoom(chat.chatId)) },
+                            .clickable { onChatSelected(chat.chatId) },
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
                     ) {
                         Row(

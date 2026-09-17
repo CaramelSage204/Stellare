@@ -15,6 +15,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -23,16 +24,22 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.example.stellare.ui.StellareViewModel
+import coil.compose.AsyncImage
+import com.example.stellare.ui.profile.ProfileViewModel
+import kotlinx.coroutines.launch
 
 @Composable
 fun WalletScreen(
-    viewModel: StellareViewModel,
+    viewModel: WalletViewModel,
+    profileViewModel: ProfileViewModel,
+    onOpenProfileSheet: () -> Unit,
     onBack: () -> Unit
 ) {
     val context = LocalContext.current
-    val currentUser by viewModel.currentUser.collectAsStateWithLifecycle()
-    val transactions by viewModel.walletTransactions.collectAsStateWithLifecycle()
+    val coroutineScope = rememberCoroutineScope()
+    val currentUser by profileViewModel.currentUser.collectAsStateWithLifecycle()
+    val balance by viewModel.balance.collectAsStateWithLifecycle()
+    val transactions by viewModel.transactions.collectAsStateWithLifecycle()
     
     // UI states
     var showPacksDialog by remember { mutableStateOf(false) }
@@ -78,83 +85,91 @@ fun WalletScreen(
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
             // Premium Telegram App Bar
-            Row(
+            // Box + align zamiast Row(SpaceBetween): lewa grupa (awatar + Close) jest szersza
+            // niz prawa grupa (QR + wiecej), wiec SpaceBetween przesunaloby tytul "Portfel" od srodka.
+            // Jeden nagłówek: awatar, Close, tytuł, QR i "więcej" — bez osobnego, zdublowanego
+            // rzędu z drugim (dekoracyjnym) awatarem, który tu wcześniej był.
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+                    .padding(horizontal = 16.dp, vertical = 12.dp)
             ) {
-                TextButton(
-                    onClick = onBack,
-                    contentPadding = PaddingValues(0.dp)
+                Row(
+                    modifier = Modifier.align(Alignment.CenterStart),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        text = "Close",
-                        color = textPrimary,
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Medium
-                    )
+                    IconButton(onClick = onOpenProfileSheet) {
+                        val profileImageUri = currentUser?.profileImageUri
+                        if (!profileImageUri.isNullOrEmpty()) {
+                            AsyncImage(
+                                model = profileImageUri,
+                                contentDescription = "Avatar",
+                                modifier = Modifier
+                                    .size(32.dp)
+                                    .clip(CircleShape)
+                                    .border(1.dp, telegramBlue, CircleShape),
+                                contentScale = ContentScale.Crop
+                            )
+                        } else {
+                            Box(
+                                modifier = Modifier
+                                    .size(32.dp)
+                                    .clip(CircleShape)
+                                    .background(bgCard),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = currentUser?.firstName?.firstOrNull()?.toString()?.uppercase() ?: "?",
+                                    color = telegramBlue,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
+                    TextButton(
+                        onClick = onBack,
+                        contentPadding = PaddingValues(0.dp)
+                    ) {
+                        Text(
+                            text = "Close",
+                            color = textPrimary,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
                 }
 
                 Text(
                     text = "Portfel",
                     color = textPrimary,
                     fontWeight = FontWeight.Bold,
-                    fontSize = 17.sp
+                    fontSize = 17.sp,
+                    modifier = Modifier.align(Alignment.Center)
                 )
 
-                IconButton(
-                    onClick = { showDetailsMenu = !showDetailsMenu }
+                Row(
+                    modifier = Modifier.align(Alignment.CenterEnd),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.MoreHoriz,
-                        contentDescription = "Więcej",
-                        tint = textPrimary
-                    )
-                }
-            }
-
-            // Profile row
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                // Left avatar circle
-                Box(
-                    modifier = Modifier
-                        .size(38.dp)
-                        .clip(CircleShape)
-                        .background(Color(0xFF3B3C42)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    val initial = currentUser?.firstName?.take(1) ?: "U"
-                    Text(
-                        text = initial,
-                        color = textPrimary,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 16.sp
-                    )
-                }
-
-                // Right Scanner/QR Icon
-                IconButton(
-                    onClick = {
-                        Toast.makeText(context, "Skaner kodów QR zostanie uruchomiony wkrótce!", Toast.LENGTH_SHORT).show()
-                    },
-                    modifier = Modifier
-                        .size(38.dp)
-                        .background(bgCard, CircleShape)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.QrCodeScanner,
-                        contentDescription = "Skanuj QR",
-                        tint = textPrimary,
-                        modifier = Modifier.size(18.dp)
-                    )
+                    IconButton(
+                        onClick = {
+                            Toast.makeText(context, "Skaner kodów QR zostanie uruchomiony wkrótce!", Toast.LENGTH_SHORT).show()
+                        }
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.QrCodeScanner,
+                            contentDescription = "Skanuj QR",
+                            tint = textPrimary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                    IconButton(onClick = { showDetailsMenu = !showDetailsMenu }) {
+                        Icon(
+                            imageVector = Icons.Default.MoreHoriz,
+                            contentDescription = "Więcej",
+                            tint = textPrimary
+                        )
+                    }
                 }
             }
 
@@ -175,7 +190,7 @@ fun WalletScreen(
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            text = "${currentUser?.coinsBalance ?: 0}",
+                            text = "$balance",
                             fontSize = 52.sp,
                             fontWeight = FontWeight.Bold,
                             color = textPrimary
@@ -190,7 +205,7 @@ fun WalletScreen(
                     }
                     Spacer(modifier = Modifier.height(4.dp))
                     // 1:1 estimate (1 WKT = 1 PLN)
-                    val plnValue = (currentUser?.coinsBalance ?: 0).toDouble()
+                    val plnValue = balance.toDouble()
                     Text(
                         text = "~ ${String.format("%.2f", plnValue)} PLN",
                         fontSize = 15.sp,
@@ -438,7 +453,7 @@ fun WalletScreen(
                 confirmButton = {
                     Button(
                         onClick = {
-                            viewModel.topUpWallet(pack.coins)
+                            viewModel.topUp(pack.coins)
                             lastAddedCoins = pack.coins
                             showCheckoutDialog = null
                             checkoutCode = ""
@@ -560,14 +575,16 @@ fun WalletScreen(
                                 Toast.makeText(context, "Wpisz adres odbiorcy!", Toast.LENGTH_SHORT).show()
                                 return@Button
                             }
-                            val success = viewModel.spendCoins(amount, "Przelew do: $transferRecipient")
-                            if (success) {
-                                showTransferDialog = false
-                                showTransferSuccess = true
-                                transferAmount = ""
-                                transferRecipient = ""
-                            } else {
-                                Toast.makeText(context, "Brak wystarczających środków!", Toast.LENGTH_SHORT).show()
+                            coroutineScope.launch {
+                                val success = viewModel.spend(amount, "Przelew do: $transferRecipient")
+                                if (success) {
+                                    showTransferDialog = false
+                                    showTransferSuccess = true
+                                    transferAmount = ""
+                                    transferRecipient = ""
+                                } else {
+                                    Toast.makeText(context, "Brak wystarczających środków!", Toast.LENGTH_SHORT).show()
+                                }
                             }
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = telegramBlue)
@@ -694,14 +711,16 @@ fun WalletScreen(
                                 Toast.makeText(context, "Wpisz numer konta/karty!", Toast.LENGTH_SHORT).show()
                                 return@Button
                             }
-                            val success = viewModel.spendCoins(amount, "Wypłata środków (WKT -> PLN)")
-                            if (success) {
-                                showWithdrawDialog = false
-                                showWithdrawSuccess = true
-                                withdrawAmount = ""
-                                withdrawAddress = ""
-                            } else {
-                                Toast.makeText(context, "Brak wystarczających środków!", Toast.LENGTH_SHORT).show()
+                            coroutineScope.launch {
+                                val success = viewModel.spend(amount, "Wypłata środków (WKT -> PLN)")
+                                if (success) {
+                                    showWithdrawDialog = false
+                                    showWithdrawSuccess = true
+                                    withdrawAmount = ""
+                                    withdrawAddress = ""
+                                } else {
+                                    Toast.makeText(context, "Brak wystarczających środków!", Toast.LENGTH_SHORT).show()
+                                }
                             }
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = telegramBlue)

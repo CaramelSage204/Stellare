@@ -22,25 +22,36 @@ import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.stellare.data.model.UserModel
 import com.example.stellare.data.model.AppointmentModel
-import com.example.stellare.ui.StellareViewModel
+import com.example.stellare.ui.calendar.BookingState
+import com.example.stellare.ui.calendar.CalendarViewModel
+import com.example.stellare.ui.chat.ChatViewModel
+import com.example.stellare.ui.feed.FeedViewModel
+import com.example.stellare.ui.profile.ProfileViewModel
 import com.example.stellare.ui.components.SpecializationChip
-import com.example.stellare.ui.navigation.Screen
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun PsychologistDetailScreen(
-    viewModel: StellareViewModel,
+    profileViewModel: ProfileViewModel,
+    feedViewModel: FeedViewModel,
+    calendarViewModel: CalendarViewModel,
+    chatViewModel: ChatViewModel,
     psychologistId: String,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onNavigateToWallet: () -> Unit,
+    onNavigateToCalendar: () -> Unit,
+    onChatOpened: (String) -> Unit
 ) {
-    val currentUser by viewModel.currentUser.collectAsStateWithLifecycle()
+    val currentUser by profileViewModel.currentUser.collectAsStateWithLifecycle()
     var psych by remember { mutableStateOf<UserModel?>(null) }
-    val reviews by viewModel.getReviewsForPsychologist(psychologistId).collectAsStateWithLifecycle(emptyList())
+    val reviews by profileViewModel.reviewsFor(psychologistId).collectAsStateWithLifecycle(emptyList())
+    val coroutineScope = rememberCoroutineScope()
 
     var showCertificateDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(psychologistId) {
-        psych = viewModel.getUserById(psychologistId)
+        psych = profileViewModel.userById(psychologistId)
     }
 
     Scaffold(
@@ -53,9 +64,9 @@ fun PsychologistDetailScreen(
                     }
                 },
                 actions = {
-                    val favoritePsychologistsIds by viewModel.favoritePsychologistsIds.collectAsStateWithLifecycle()
-                    val isFav = favoritePsychologistsIds.contains(psychologistId)
-                    IconButton(onClick = { viewModel.toggleFavorite(psychologistId) }) {
+                    val favoriteIds by feedViewModel.favoriteIds.collectAsStateWithLifecycle()
+                    val isFav = favoriteIds.contains(psychologistId)
+                    IconButton(onClick = { feedViewModel.toggleFavorite(psychologistId) }) {
                         Icon(
                             imageVector = if (isFav) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
                             contentDescription = "Ulubione",
@@ -212,11 +223,21 @@ fun PsychologistDetailScreen(
                 }
 
                 // Real time slots booking
-                val availableSlots by viewModel.getFreeSlotsForPsychologist(psychologistId).collectAsStateWithLifecycle(emptyList())
+                val freeSlotsFlow = remember(psychologistId) { calendarViewModel.freeSlotsFor(psychologistId) }
+                val availableSlots by freeSlotsFlow.collectAsStateWithLifecycle(emptyList())
                 var selectedAppointment by remember { mutableStateOf<AppointmentModel?>(null) }
                 var showBookingDialog by remember { mutableStateOf(false) }
                 var bookingNotes by remember { mutableStateOf("") }
                 var bookingSuccess by remember { mutableStateOf(false) }
+                val bookingState by calendarViewModel.bookingState.collectAsStateWithLifecycle()
+
+                LaunchedEffect(bookingState) {
+                    if (bookingState is BookingState.Success) {
+                        showBookingDialog = false
+                        bookingSuccess = true
+                        calendarViewModel.resetBookingState()
+                    }
+                }
 
                 Text("Rezerwacja sesji online", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(bottom = 4.dp))
                 
@@ -288,7 +309,11 @@ fun PsychologistDetailScreen(
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     Button(
-                        onClick = { viewModel.startChatWith(user.id) },
+                        onClick = {
+                            coroutineScope.launch {
+                                chatViewModel.openChatWith(user.id)?.let { onChatOpened(it) }
+                            }
+                        },
                         modifier = Modifier.weight(1.5f).height(52.dp),
                         shape = RoundedCornerShape(12.dp)
                     ) {
@@ -313,7 +338,10 @@ fun PsychologistDetailScreen(
 
                 if (showBookingDialog && selectedAppointment != null) {
                     AlertDialog(
-                        onDismissRequest = { showBookingDialog = false },
+                        onDismissRequest = {
+                            showBookingDialog = false
+                            calendarViewModel.resetBookingState()
+                        },
                         title = { Text("Potwierdź rezerwację") },
                         text = {
                             Column {
@@ -341,7 +369,7 @@ fun PsychologistDetailScreen(
                                         )
                                         Spacer(modifier = Modifier.width(12.dp))
                                         Column {
-                                            val costInCoins = user.pricePerSession.toInt()
+                                            val costInCoins = selectedAppointment!!.priceCoins
                                             Text(
                                                 text = "Koszt rezerwacji: $costInCoins monet WKT",
                                                 fontWeight = FontWeight.Bold,
@@ -368,19 +396,26 @@ fun PsychologistDetailScreen(
                                     modifier = Modifier.fillMaxWidth(),
                                     maxLines = 3
                                 )
+
+                                (bookingState as? BookingState.Error)?.message?.let { message ->
+                                    Spacer(modifier = Modifier.height(12.dp))
+                                    Text(
+                                        text = message,
+                                        color = MaterialTheme.colorScheme.error,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
                             }
                         },
                         confirmButton = {
                             val balance = currentUser?.coinsBalance ?: 0
-                            val costInCoins = user.pricePerSession.toInt()
+                            val costInCoins = selectedAppointment!!.priceCoins
                             if (balance >= costInCoins) {
                                 Button(
+                                    enabled = bookingState !is BookingState.InProgress,
                                     onClick = {
-                                        val success = viewModel.bookAppointment(selectedAppointment!!.appointmentId, bookingNotes, costInCoins = costInCoins)
-                                        if (success) {
-                                            showBookingDialog = false
-                                            bookingSuccess = true
-                                        }
+                                        calendarViewModel.book(selectedAppointment!!, bookingNotes)
                                     }
                                 ) {
                                     Text("Zatwierdź ($costInCoins monet)", color = Color.Black)
@@ -389,7 +424,8 @@ fun PsychologistDetailScreen(
                                 Button(
                                     onClick = {
                                         showBookingDialog = false
-                                        viewModel.navigateTo(Screen.Wallet)
+                                        calendarViewModel.resetBookingState()
+                                        onNavigateToWallet()
                                     },
                                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFFD700))
                                 ) {
@@ -398,7 +434,10 @@ fun PsychologistDetailScreen(
                             }
                         },
                         dismissButton = {
-                            TextButton(onClick = { showBookingDialog = false }) {
+                            TextButton(onClick = {
+                                showBookingDialog = false
+                                calendarViewModel.resetBookingState()
+                            }) {
                                 Text("Anuluj")
                             }
                         }
@@ -420,7 +459,7 @@ fun PsychologistDetailScreen(
                                 onClick = {
                                     bookingSuccess = false
                                     selectedAppointment = null
-                                    viewModel.navigateTo(Screen.Calendar)
+                                    onNavigateToCalendar()
                                 }
                             ) {
                                 Text("Przejdź do Kalendarza", color = Color.Black)

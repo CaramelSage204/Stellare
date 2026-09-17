@@ -10,11 +10,11 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.tasks.await
 
-class FirestoreChatDataSource {
+class FirestoreChatDataSource : ChatDataSource {
     private val db = Firebase.firestore
     private val collection = db.collection("chats")
 
-    suspend fun saveChat(chat: ChatModel) {
+    override suspend fun saveChat(chat: ChatModel) {
         val id = if (chat.chatId.isEmpty()) {
             collection.document().id
         } else {
@@ -24,7 +24,7 @@ class FirestoreChatDataSource {
         collection.document(id).set(chatToSave).await()
     }
 
-    fun getChatsForUser(userId: String): Flow<List<ChatModel>> = callbackFlow {
+    override fun getChatsForUser(userId: String): Flow<List<ChatModel>> = callbackFlow {
         if (userId.isEmpty()) {
             trySend(emptyList())
             return@callbackFlow
@@ -35,7 +35,6 @@ class FirestoreChatDataSource {
             .addSnapshotListener { snap, error ->
                 if (error != null) {
                     android.util.Log.e("FirestoreChat", "Error fetching chats for user $userId: ${error.message}", error)
-                    close() // Close the flow without an error to avoid crashing the app
                     return@addSnapshotListener
                 }
                 val chats = snap?.toObjects(ChatModel::class.java) ?: emptyList()
@@ -44,7 +43,7 @@ class FirestoreChatDataSource {
         awaitClose { listener.remove() }
     }
 
-    suspend fun getChatByParticipants(psychId: String, patientId: String): ChatModel? {
+    override suspend fun getChatByParticipants(psychId: String, patientId: String): ChatModel? {
         return try {
             val currentUserId = FirebaseAuth.getInstance().currentUser?.uid ?: return null
             val searchId = if (currentUserId == psychId) psychId else patientId
@@ -62,7 +61,14 @@ class FirestoreChatDataSource {
     }
 
 
-    suspend fun updateChat(chat: ChatModel) {
-        collection.document(chat.chatId).set(chat).await()
+    override suspend fun updateChat(chat: ChatModel) {
+        collection.document(chat.chatId).update(
+            mapOf(
+                "lastMessage" to chat.lastMessage,
+                "lastMessageTime" to chat.lastMessageTime
+            )
+        ).await()
     }
+
+    override fun newChatId(): String = collection.document().id
 }

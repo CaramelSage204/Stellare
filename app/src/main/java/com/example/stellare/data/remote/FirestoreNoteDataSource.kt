@@ -9,11 +9,11 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.tasks.await
 
-class FirestoreNoteDataSource {
+class FirestoreNoteDataSource : NoteDataSource {
     private val db = Firebase.firestore
     private val collection = db.collection("notes")
 
-    suspend fun saveNote(note: NoteModel) {
+    override suspend fun saveNote(note: NoteModel) {
         val id = if (note.noteId.isEmpty()) {
             collection.document().id
         } else {
@@ -23,7 +23,7 @@ class FirestoreNoteDataSource {
         collection.document(id).set(noteToSave).await()
     }
 
-    fun getNotesForChat(chatId: String): Flow<List<NoteModel>> = callbackFlow {
+    override fun getNotesForChat(chatId: String): Flow<List<NoteModel>> = callbackFlow {
         if (chatId.isEmpty()) {
             trySend(emptyList())
             return@callbackFlow
@@ -34,7 +34,6 @@ class FirestoreNoteDataSource {
             .addSnapshotListener { snap, error ->
                 if (error != null) {
                     android.util.Log.e("FirestoreNoteDS", "Error fetching notes for chat $chatId: ${error.message}")
-                    close()
                     return@addSnapshotListener
                 }
                 trySend(snap?.toObjects(NoteModel::class.java) ?: emptyList())
@@ -42,7 +41,7 @@ class FirestoreNoteDataSource {
         awaitClose { listener.remove() }
     }
 
-    suspend fun deleteNote(noteId: String) {
+    override suspend fun deleteNote(noteId: String) {
         collection.document(noteId).delete().await()
     }
 }
