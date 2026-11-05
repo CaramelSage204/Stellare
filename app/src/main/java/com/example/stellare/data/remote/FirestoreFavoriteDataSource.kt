@@ -8,11 +8,11 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.tasks.await
 
-class FirestoreFavoriteDataSource {
+class FirestoreFavoriteDataSource : FavoriteDataSource {
     private val db = Firebase.firestore
     private val collection = db.collection("favorites")
 
-    fun getFavoritesForUser(userId: String): Flow<List<FavoriteModel>> = callbackFlow {
+    override fun getFavoritesForUser(userId: String): Flow<List<FavoriteModel>> = callbackFlow {
         if (userId.isEmpty()) {
             trySend(emptyList())
             return@callbackFlow
@@ -22,7 +22,6 @@ class FirestoreFavoriteDataSource {
             .addSnapshotListener { snap, error ->
                 if (error != null) {
                     android.util.Log.e("FirestoreFavoriteDS", "Error fetching favorites for user $userId: ${error.message}")
-                    close()
                     return@addSnapshotListener
                 }
                 trySend(snap?.toObjects(FavoriteModel::class.java) ?: emptyList())
@@ -30,14 +29,13 @@ class FirestoreFavoriteDataSource {
         awaitClose { listener.remove() }
     }
 
-    suspend fun saveFavorite(favorite: FavoriteModel) {
-        // Use a composite ID to prevent duplicates and make deletion easier
-        val docId = "${favorite.userId}_${favorite.psychologistId}"
-        collection.document(docId).set(favorite).await()
+    override suspend fun saveFavorite(favorite: FavoriteModel) {
+        collection.document(compositeId(favorite.userId, favorite.psychologistId)).set(favorite).await()
     }
 
-    suspend fun deleteFavorite(userId: String, psychologistId: String) {
-        val docId = "${userId}_${psychologistId}"
-        collection.document(docId).delete().await()
+    override suspend fun deleteFavorite(userId: String, psychologistId: String) {
+        collection.document(compositeId(userId, psychologistId)).delete().await()
     }
+
+    private fun compositeId(userId: String, psychologistId: String): String = "${userId}_${psychologistId}"
 }

@@ -8,28 +8,38 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.stellare.data.model.AppointmentModel
+import com.example.stellare.data.model.AppointmentSchedule
+import java.util.TimeZone
+import com.example.stellare.ui.theme.stellareButtonColors
+import com.example.stellare.ui.LocalClock
 
 @Composable
 fun AddSlotDialog(
     onDismiss: () -> Unit,
-    onConfirm: (date: String, time: String) -> Unit,
+    onConfirm: (startsAtMillis: Long) -> Unit,
     existingAppointments: List<AppointmentModel>
 ) {
-    var selectedDate by remember { mutableStateOf<String?>(null) }
-    var selectedHour by remember { mutableStateOf(12) }
-    var selectedMinute by remember { mutableStateOf(0) }
+    var selectedDate by rememberSaveable { mutableStateOf<String?>(null) }
+    var selectedHour by rememberSaveable { mutableStateOf(12) }
+    var selectedMinute by rememberSaveable { mutableStateOf(0) }
 
     val formattedTimeCheck = "${selectedHour.toString().padStart(2, '0')}:${selectedMinute.toString().padStart(2, '0')}"
     val isAlreadyBookedOrFree = selectedDate != null && existingAppointments.any { 
         it.date == selectedDate && it.time == formattedTimeCheck
     }
+
+    val candidateStartsAt = selectedDate?.let {
+        AppointmentSchedule.startsAtMillis(it, selectedHour, selectedMinute, TimeZone.getDefault())
+    }
+    val isInPast = candidateStartsAt != null && candidateStartsAt <= LocalClock.current()
+    val canConfirm = candidateStartsAt != null && !isAlreadyBookedOrFree && !isInPast
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -83,6 +93,15 @@ fun AddSlotDialog(
                         
                         Spacer(modifier = Modifier.height(8.dp))
                         
+                        if (isInPast) {
+                            Text(
+                                text = "Ten termin jest już w przeszłości. Wybierz późniejszą godzinę.",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp,
+                                color = MaterialTheme.colorScheme.error
+                            )
+                        }
+
                         selectedDate?.let { date ->
                             if (isAlreadyBookedOrFree) {
                                 Card(
@@ -151,18 +170,14 @@ fun AddSlotDialog(
         confirmButton = {
             Button(
                 onClick = {
-                    val date = selectedDate
-                    if (date != null && !isAlreadyBookedOrFree) {
-                        onConfirm(date, formattedTimeCheck)
+                    if (canConfirm) {
+                        onConfirm(candidateStartsAt!!)
                     }
                 },
-                enabled = selectedDate != null && !isAlreadyBookedOrFree,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    disabledContainerColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)
-                )
+                enabled = canConfirm,
+                colors = stellareButtonColors()
             ) {
-                Text("Dodaj do grafiku", color = if (selectedDate != null && !isAlreadyBookedOrFree) Color.Black else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f))
+                Text("Dodaj do grafiku")
             }
         },
         dismissButton = {

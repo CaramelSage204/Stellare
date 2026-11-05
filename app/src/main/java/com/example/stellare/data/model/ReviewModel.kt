@@ -3,6 +3,7 @@ package com.example.stellare.data.model
 data class ReviewModel(
     val reviewId: String = "",
     val psychologistId: String = "",
+    val reviewerId: String = "",
     val reviewerName: String = "",
     val rating: Int = 0,
     val comment: String = "",

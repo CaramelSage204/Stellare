@@ -26,10 +26,13 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
+
+private const val MAX_WHEEL_SCALE = 1.6f
 
 @Composable
 fun WheelTimePicker(
@@ -37,6 +40,7 @@ fun WheelTimePicker(
     selectedMinute: Int,
     onTimeSelected: (hour: Int, minute: Int) -> Unit
 ) {
+    val scale = LocalDensity.current.fontScale.coerceIn(1f, MAX_WHEEL_SCALE)
     val hours = (0..23).map { it.toString().padStart(2, '0') }
     val minutes = (0..59 step 5).map { it.toString().padStart(2, '0') }
     
@@ -48,14 +52,13 @@ fun WheelTimePicker(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(180.dp)
+            .height(180.dp * scale)
             .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f), RoundedCornerShape(16.dp))
             .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.15f), RoundedCornerShape(16.dp))
             .padding(vertical = 8.dp),
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // Hours column
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             modifier = Modifier.weight(1f)
@@ -64,15 +67,14 @@ fun WheelTimePicker(
             
             Box(
                 modifier = Modifier
-                    .height(110.dp)
+                    .height(110.dp * scale)
                     .width(80.dp),
                 contentAlignment = Alignment.Center
             ) {
-                // Background highlight for the center item
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(34.dp)
+                        .height(34.dp * scale)
                         .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f), RoundedCornerShape(8.dp))
                         .border(1.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(8.dp))
                 )
@@ -80,7 +82,7 @@ fun WheelTimePicker(
                 LazyColumn(
                     state = hoursListState,
                     flingBehavior = rememberSnapFlingBehavior(lazyListState = hoursListState),
-                    contentPadding = PaddingValues(vertical = 38.dp),
+                    contentPadding = PaddingValues(vertical = 38.dp * scale),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     modifier = Modifier.fillMaxSize()
                 ) {
@@ -89,7 +91,7 @@ fun WheelTimePicker(
                         
                         Box(
                             modifier = Modifier
-                                .height(34.dp)
+                                .height(34.dp * scale)
                                 .fillMaxWidth()
                                 .clickable {
                                     coroutineScope.launch {
@@ -112,7 +114,6 @@ fun WheelTimePicker(
             }
         }
         
-        // Separator ":"
         Text(
             text = ":",
             fontSize = 24.sp,
@@ -121,7 +122,6 @@ fun WheelTimePicker(
             modifier = Modifier.padding(horizontal = 8.dp)
         )
         
-        // Minutes column
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             modifier = Modifier.weight(1f)
@@ -130,15 +130,14 @@ fun WheelTimePicker(
             
             Box(
                 modifier = Modifier
-                    .height(110.dp)
+                    .height(110.dp * scale)
                     .width(80.dp),
                 contentAlignment = Alignment.Center
             ) {
-                // Background highlight for the center item
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(34.dp)
+                        .height(34.dp * scale)
                         .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f), RoundedCornerShape(8.dp))
                         .border(1.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(8.dp))
                 )
@@ -146,7 +145,7 @@ fun WheelTimePicker(
                 LazyColumn(
                     state = minutesListState,
                     flingBehavior = rememberSnapFlingBehavior(lazyListState = minutesListState),
-                    contentPadding = PaddingValues(vertical = 38.dp),
+                    contentPadding = PaddingValues(vertical = 38.dp * scale),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     modifier = Modifier.fillMaxSize()
                 ) {
@@ -155,7 +154,7 @@ fun WheelTimePicker(
                         
                         Box(
                             modifier = Modifier
-                                .height(34.dp)
+                                .height(34.dp * scale)
                                 .fillMaxWidth()
                                 .clickable {
                                     coroutineScope.launch {
@@ -179,7 +178,6 @@ fun WheelTimePicker(
         }
     }
     
-    // Sync selection when scroll finishes
     LaunchedEffect(hoursListState.isScrollInProgress, minutesListState.isScrollInProgress) {
         if (!hoursListState.isScrollInProgress && !minutesListState.isScrollInProgress) {
             val hIdx = hoursListState.firstVisibleItemIndex.coerceIn(0, hours.size - 1)

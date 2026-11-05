@@ -16,3 +16,15 @@
 local.properties
 .env
 debug.keystore
+
+firebase/node_modules
+firebase/.firebase
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
+
+# dziennik decyzji i materialy robocze procesu — zostaja lokalnie
+.superpowers/
+
+# dzienniki przebiegow Gradle zostawiane przez narzedzia
+build_*.log

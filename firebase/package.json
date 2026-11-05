@@ -1,0 +1,16 @@
+{
+  "name": "stellare-firestore-rules",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "firebase emulators:exec --only firestore \"vitest run\"",
+    "test:watch": "firebase emulators:exec --only firestore \"vitest\"",
+    "deploy": "firebase deploy --only firestore:rules,firestore:indexes"
+  },
+  "devDependencies": {
+    "@firebase/rules-unit-testing": "^3.0.4",
+    "firebase": "^11.0.0",
+    "firebase-tools": "^13.29.1",
+    "vitest": "^2.1.8"
+  }
+}

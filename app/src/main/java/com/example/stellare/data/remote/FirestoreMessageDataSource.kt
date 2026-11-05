@@ -4,17 +4,18 @@ import android.util.Log
 import com.example.stellare.data.model.MessageModel
 import com.google.firebase.Firebase
 import com.google.firebase.firestore.Query
+import com.google.firebase.firestore.QuerySnapshot
 import com.google.firebase.firestore.firestore
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.tasks.await
 
-class FirestoreMessageDataSource {
+class FirestoreMessageDataSource : MessageDataSource {
     private val db = Firebase.firestore
     private val collection = db.collection("messages")
 
-    suspend fun saveMessage(message: MessageModel) {
+    override suspend fun saveMessage(message: MessageModel) {
         val id = if (message.messageId.isEmpty()) {
             collection.document().id
         } else {
@@ -24,7 +25,7 @@ class FirestoreMessageDataSource {
         collection.document(id).set(messageToSave).await()
     }
 
-    fun getMessagesForChat(chatId: String): Flow<List<MessageModel>> = callbackFlow {
+    override fun getMessagesForChat(chatId: String): Flow<List<MessageModel>> = callbackFlow {
         if (chatId.isEmpty()) {
             trySend(emptyList())
             return@callbackFlow
@@ -35,11 +36,18 @@ class FirestoreMessageDataSource {
             .addSnapshotListener { snap, error ->
                 if (error != null) {
                     Log.e("FirestoreMessageDS", "getMessagesForChat failed for chatId=$chatId", error)
-                    close()
                     return@addSnapshotListener
                 }
-                trySend(snap?.toObjects(MessageModel::class.java) ?: emptyList())
+                trySend(messagesOf(snap))
             }
         awaitClose { listener.remove() }
     }
+
+    // Tozsamosc wiadomosci pochodzi z identyfikatora dokumentu, nigdy z pola
+    // "messageId". Pole pisze klient, wiec dwie wiadomosci moga twierdzic, ze sa
+    // ta sama wiadomoscia - a messageId jest kluczem listy na ekranie rozmowy.
+    private fun messagesOf(snapshot: QuerySnapshot?): List<MessageModel> =
+        snapshot?.documents?.mapNotNull { document ->
+            document.toObject(MessageModel::class.java)?.copy(messageId = document.id)
+        } ?: emptyList()
 }
