@@ -271,14 +271,20 @@ Firebase Storage wynika z tego, że Storage wymaga dziś planu Blaze — patrz s
 
 ## 7. Ekonomia monet
 
+> **Zaktualizowano po etapie 9.** Pierwotna wersja tej tabeli opisywała model, w którym monety
+> przy rezerwacji trafiały **wprost na konto psychologa**. Od wprowadzenia depozytu
+> (`escrows/{appointmentId}`) tak już nie jest — i to jest sedno zmiany, bo tylko dzięki temu
+> pacjent odzyskuje monety **bez udziału psychologa**.
+
 | Zdarzenie | Skutek |
 | --- | --- |
 | Doładowanie | Saldo pacjenta rośnie. Wpis `TOPUP` w księdze |
-| Rezerwacja | Pacjentowi ubywa `priceCoins` danego psychologa, psychologowi przybywa tyle samo. Dwa wpisy: `BOOKING_PAYMENT` i `BOOKING_EARNING` |
-| Odwołanie przez pacjenta ponad 24 h przed sesją | Pełny zwrot. Wpis `REFUND` po obu stronach |
-| Odwołanie przez pacjenta poniżej 24 h przed sesją | Bez zwrotu. Monety zostają u psychologa |
+| Rezerwacja | Pacjentowi ubywa `priceCoins`, a monety trafiają **na depozyt wizyty** (`escrows/{appointmentId}`, status `HELD`). **Saldo psychologa nie zmienia się ani o monetę** |
+| Oznaczenie sesji jako odbytej | **Dopiero teraz** depozyt przechodzi w `RELEASED`, saldo psychologa rośnie i powstaje wpis „Wpływ za wizytę". To jedyny moment, w którym psycholog dostaje monety |
+| Odwołanie przez pacjenta ponad 24 h przed sesją | Pełny zwrot, **samoobsługowy** — depozyt przechodzi w `REFUNDED` bez żadnego działania psychologa |
+| Odwołanie przez pacjenta poniżej 24 h przed sesją | Bez zwrotu. Monety pozostają w depozycie do rozliczenia |
 | Odwołanie przez psychologa | Zawsze pełny zwrot, niezależnie od terminu |
-| Oznaczenie sesji jako odbytej | Bez skutku finansowego — monety przeszły już przy rezerwacji |
+| Termin, którego psycholog nigdy nie rozliczył | Po **14 dniach** od minionego terminu pacjent odzyskuje monety sam (`REFUNDED`). Bez tej drogi monety psychologa nieaktywnego w aplikacji zostawałyby w depozycie bezterminowo |
 
 Bez prowizji platformy. Psycholog widzi zarobek w portfelu. Cena bierze się z pola
 `pricePerSession` psychologa w chwili rezerwacji i jest zapisywana na dokumencie terminu

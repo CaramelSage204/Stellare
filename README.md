@@ -22,11 +22,62 @@ logika bezpieczeństwa siedzi w regułach Firestore.
 | pliki źródłowe | 224 produkcyjne, 164 testowe (Kotlin) + 16 plików testów reguł (JS) |
 | reguły Firestore | 879 linii |
 
-**Co działa:** rejestracja i logowanie (e-mail, Google, Facebook), 2FA SMS jako powiązanie numeru,
-uzupełnianie profilu, ogłoszenia („szukam psychologa" / „oferuję terapię"), kalendarz z rezerwacją
-terminów i depozytem monet, odwoływanie wizyt ze zwrotem, czaty z notatkami, oceny i opinie, portfel
-z historią, weryfikacja kwalifikacji przez panel administratora, usuwanie konta, FAQ, ustawienia
-(motyw, rozmiar czcionki, kolor dymków).
+### Co można zrobić w aplikacji
+
+Aplikacja ma **23 trasy nawigacji** i trzy role: pacjent, psycholog i administrator. Rola jest wybierana
+przy rejestracji i decyduje, co widać.
+
+**Każdy, niezależnie od roli**
+
+| Funkcja | Szczegóły |
+|---|---|
+| Rejestracja i logowanie | e-mailem z hasłem, kontem Google albo Facebookiem; reset hasła e-mailem |
+| Powiązanie numeru telefonu (2FA SMS) | kod SMS; numer **nie jest** polem „zweryfikowany" w profilu — potwierdzenie żyje w tokenie uwierzytelnienia, więc nie da się go podrobić zapisem do bazy |
+| Uzupełnienie i edycja profilu | imię, nazwisko, wiek, płeć, opis; psycholog dodatkowo cenę za sesję i specjalizacje |
+| Ogłoszenia | przeglądanie listy, filtrowanie po tagach i szukanie tekstem, zakładanie własnego ogłoszenia („szukam psychologa" albo „oferuję terapię"), dezaktywacja własnego |
+| Czaty | rozmowa z drugą stroną, wątek per para użytkowników; ostatnia wiadomość i czas widoczne na liście |
+| Portfel | saldo, historia operacji z nazwami drugiej strony, doładowanie |
+| Kalendarz | widok tygodnia, szczegóły wizyty, odwołanie |
+| Ustawienia | motyw (jasny / ciemny / systemowy), rozmiar czcionki, kolor dymków czatu |
+| FAQ | statyczne odpowiedzi w aplikacji |
+| Usunięcie konta | z informacją, co przepada (patrz sekcja 8) |
+
+**Pacjent**
+
+| Funkcja | Szczegóły, dokładnie |
+|---|---|
+| Doładowanie portfela | pakiety **50 / 100 / 250 monet**; ręcznie **od 1 do 1000 monet** na raz. **Płatność jest symulowana** — nie ma operatora płatności (patrz sekcja 7) |
+| Przeglądanie psychologa | profil, cena za sesję, średnia ocena i liczba opinii, status weryfikacji kwalifikacji, wolne terminy |
+| Rezerwacja terminu | monety schodzą z salda **na depozyt wizyty**, nie na konto psychologa. Cena jest zapisywana na dokumencie terminu w chwili rezerwacji, więc późniejsza zmiana cennika nie wpływa na zwrot |
+| Odwołanie **ponad 24 h** przed terminem | **pełny zwrot, samoobsługowy** — nie wymaga żadnego działania psychologa |
+| Odwołanie **poniżej 24 h** przed terminem | bez zwrotu; monety pozostają w depozycie do rozliczenia |
+| Termin, którego psycholog nigdy nie rozliczył | po **14 dniach** od minionego terminu pacjent odzyskuje monety sam. To zamyka przypadek psychologa, który przestał korzystać z aplikacji |
+| Ocena i opinia | gwiazdki **1–5** plus komentarz, **tylko po wizycie oznaczonej jako odbyta**; jedna opinia na wizytę |
+
+**Psycholog**
+
+| Funkcja | Szczegóły, dokładnie |
+|---|---|
+| Zgłoszenie kwalifikacji do weryfikacji | typ dokumentu (dyplom / legitymacja / certyfikat) i zdjęcie skanu; skan idzie do Firestore jako base64, **limit 1 MB** |
+| Odznaka „Zweryfikowany" | nadaje ją **wyłącznie administrator**; reguły nie pozwalają nadać jej sobie |
+| Wystawianie wolnych terminów | w kalendarzu; cena bierze się z profilu |
+| Oznaczenie wizyty jako odbytej | **dopiero wtedy** monety z depozytu trafiają na jego saldo i pojawia się wpis „Wpływ za wizytę" w księdze |
+| Odwołanie wizyty | **zawsze** pełny zwrot dla pacjenta, niezależnie od terminu |
+| „Moi klienci" | lista czatów z pacjentami, z notatkami prywatnymi do rozmowy |
+| „Moje oceny" | własne opinie i średnia; **nie da się ich wyzerować**, usuwając i odtwarzając profil |
+
+**Administrator**
+
+| Funkcja | Szczegóły, dokładnie |
+|---|---|
+| Panel weryfikacji | kolejka zgłoszeń z podglądem skanu dokumentu |
+| Zatwierdzenie | **możliwe tylko, gdy skan da się odczytać** — przy braku skanu albo obrazie poniżej progu czytelności przycisk jest nieaktywny |
+| Odrzucenie | zawsze dostępne, z podaniem powodu (brak czytelnego skanu jest najczęstszym powodem odrzucenia) |
+| Dostęp | wyłącznie przez dokument `admins/{uid}` w Firestore — **nie** przez pole w profilu |
+
+Czego w aplikacji **nie ma**: prawdziwych płatności, wypłaty monet, powiadomień push, wideorozmów,
+listy psychologów jako osobnego ekranu (wyszukiwanie idzie po ogłoszeniach) oraz kontrolki
+dezaktywacji ogłoszenia, choć sama zdolność istnieje w danych i w regułach (sekcja 7, pozycja 8).
 
 **Czego NIE ma:** własnego serwera, prawdziwych płatności (doładowanie portfela jest symulowane),
 Firebase Storage (skany dokumentów idą do Firestore jako base64, limit 1 MB), testów interfejsu
