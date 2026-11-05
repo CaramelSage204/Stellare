@@ -9,6 +9,9 @@ class WalletRepository(private val walletDataSource: WalletDataSource) {
     fun getWalletTransactionsFlow(userId: String): Flow<List<WalletTransactionModel>> =
         walletDataSource.getTransactionsForUser(userId)
 
-    suspend fun insertWalletTransaction(transaction: WalletTransactionModel) =
-        walletDataSource.saveTransaction(transaction)
+    suspend fun topUp(userId: String, amount: Int, title: String, timestamp: Long, entryId: String) =
+        walletDataSource.topUp(userId, amount, title, timestamp, entryId)
+
+    suspend fun topUpLanded(userId: String, entryId: String): Boolean =
+        walletDataSource.topUpLanded(userId, entryId)
 }

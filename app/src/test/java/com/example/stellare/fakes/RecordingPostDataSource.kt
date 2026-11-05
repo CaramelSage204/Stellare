@@ -14,17 +14,27 @@ import kotlinx.coroutines.flow.map
  * (ekonomia zapisów) ani "nie zapytano wcale" od "zapytano i nic nie znaleziono"
  * (uzgodnienie nie ma ruszać, dopóki nikt nie jest zalogowany; seekingPosts nie ma
  * pytać o ogłoszenia poszukujące, gdy zalogowany jest pacjent).
+ *
+ * [saveFailure] odtwarza odmowę reguł przy zapisie. [saveAttemptCount] liczy próby
+ * (także odrzucone), [saveCount] tylko te, które się udały — bez tego rozróżnienia
+ * nie da się odróżnić "zapis odrzucony, uzgadnianie żyje dalej" od "wyjątek zabił
+ * korutynę i nie ponowiono już nic".
  */
 class RecordingPostDataSource(initial: List<PostModel> = emptyList()) : PostDataSource {
     val posts = MutableStateFlow(initial)
     var saveCount = 0
         private set
+    var saveAttemptCount = 0
+        private set
+    var saveFailure: Throwable? = null
     var getPostsByAuthorCallCount = 0
         private set
     private val getActivePostsCallCountsByType = mutableMapOf<String, Int>()
     val getActivePostsCallCount: Int
         get() = getActivePostsCallCountsByType.values.sum()
     private var licznik = 0
+
+    override suspend fun deletePost(postId: String) = throw UnsupportedOperationException()
 
     fun getActivePostsCallCount(type: PostType): Int =
         getActivePostsCallCountsByType[type.name] ?: 0
@@ -40,6 +50,8 @@ class RecordingPostDataSource(initial: List<PostModel> = emptyList()) : PostData
     }
 
     override suspend fun savePost(post: PostModel) {
+        saveAttemptCount++
+        saveFailure?.let { throw it }
         saveCount++
         posts.value = posts.value.filterNot { it.id == post.id } + post
     }

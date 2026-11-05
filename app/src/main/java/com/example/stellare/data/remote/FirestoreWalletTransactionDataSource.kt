@@ -2,7 +2,9 @@ package com.example.stellare.data.remote
 
 import com.example.stellare.data.model.WalletTransactionModel
 import com.google.firebase.Firebase
+import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.Query
+import com.google.firebase.firestore.Source
 import com.google.firebase.firestore.firestore
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
@@ -24,6 +26,7 @@ class FirestoreWalletTransactionDataSource : WalletDataSource {
             .addSnapshotListener { snap, error ->
                 if (error != null) {
                     android.util.Log.e("FirestoreWalletDS", "Error fetching transactions for user $userId: ${error.message}")
+                    close(error)
                     return@addSnapshotListener
                 }
                 trySend(snap?.toObjects(WalletTransactionModel::class.java) ?: emptyList())
@@ -40,4 +43,30 @@ class FirestoreWalletTransactionDataSource : WalletDataSource {
         val transactionToSave = transaction.copy(transactionId = id)
         collection.document(id).set(transactionToSave).await()
     }
+
+    override suspend fun topUp(userId: String, amount: Int, title: String, timestamp: Long, entryId: String) {
+        val contactRef = db.collection(FirestoreCollections.privateOf(userId)).document(FirestoreCollections.CONTACT)
+        val plan = planTopUp(userId, amount, title, timestamp, entryId)
+        val batch = db.batch()
+        batch.update(contactRef, "coinsBalance", FieldValue.increment(plan.balanceIncrement))
+        batch.set(collection.document(plan.entry.transactionId), plan.entry)
+        batch.commit().await()
+    }
+
+    /**
+     * Zapytanie po polach, nie get() po sciezce i nie filtr documentId(): regula odczytu porownuje
+     * resource.data.userId, a dla dokumentu, ktorego nie ma, resource jest null i oba kończą się
+     * odmową zamiast "brak" (zmierzone w wallet-reconciliation.test.js). Regula tworzenia wymusza
+     * transactionId == id dokumentu, a ksiega jest niezmienna, wiec pole zastepuje identyfikator.
+     * Zrodlo SERVER: pamiec podreczna zawiera lokalnie zakolejkowany zapis i potwierdzilaby
+     * wpis, ktorego serwer nigdy nie przyjal.
+     */
+    override suspend fun topUpLanded(userId: String, entryId: String): Boolean =
+        !collection
+            .whereEqualTo(WalletLedgerFields.USER_ID, userId)
+            .whereEqualTo(WalletLedgerFields.TRANSACTION_ID, entryId)
+            .limit(1)
+            .get(Source.SERVER)
+            .await()
+            .isEmpty
 }

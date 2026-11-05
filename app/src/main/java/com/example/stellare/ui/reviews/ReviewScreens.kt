@@ -1,6 +1,6 @@
 package com.example.stellare.ui.reviews
 
-import android.text.format.DateUtils
+import com.example.stellare.ui.RelativeTime
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -15,11 +15,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.stellare.data.model.RatingModel
 import com.example.stellare.ui.profile.ProfileViewModel
 import com.example.stellare.ui.components.EmptyListPlaceholder
+import com.example.stellare.ui.components.RatingStars
+import com.example.stellare.ui.LocalClock
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -34,11 +38,17 @@ fun MyRatingsScreen(
         remember { mutableStateOf(emptyList()) }
     }
     val reviews = reviewsState.value
+    val ratingState = if (currentUser != null) {
+        remember(currentUser!!.id) { viewModel.ratingFor(currentUser!!.id) }.collectAsStateWithLifecycle(RatingModel())
+    } else {
+        remember { mutableStateOf(RatingModel()) }
+    }
+    val rating = ratingState.value
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Moje Oceny i Opinie") },
+                title = { Text("Moje Oceny i Opinie", maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Powrót")
@@ -59,22 +69,18 @@ fun MyRatingsScreen(
                     modifier = Modifier.fillMaxWidth().padding(bottom = 20.dp),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
                 ) {
-                    Column(modifier = Modifier.padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Column(modifier = Modifier.fillMaxWidth().padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                         Text("Średnia Twoich Ocen", fontWeight = FontWeight.Bold, fontSize = 16.sp)
                         Spacer(modifier = Modifier.height(12.dp))
                         Text(
-                            text = "%.1f".format(user.rating),
+                            text = myRatingAverageText(rating),
                             fontSize = 64.sp,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.primary
                         )
-                        Row {
-                            repeat(5) {
-                                Icon(Icons.Default.Star, "Star", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
-                            }
-                        }
+                        RatingStars(average = rating.average, starSize = 24.dp)
                         Spacer(modifier = Modifier.height(8.dp))
-                        Text("Na podstawie ${reviews.size} opinii pacjentów", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
+                        Text(myRatingBasisText(rating), fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
                     }
                 }
 
@@ -96,7 +102,7 @@ fun MyRatingsScreen(
                                     Text(rev.reviewerName, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                                     Row {
                                         repeat(rev.rating) {
-                                            Icon(Icons.Default.Star, "Star", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(12.dp))
+                                            Icon(Icons.Default.Star, "Ocena", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(12.dp))
                                         }
                                     }
                                 }
@@ -104,7 +110,7 @@ fun MyRatingsScreen(
                                 Text(rev.comment, fontSize = 13.sp)
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Text(
-                                    text = DateUtils.getRelativeTimeSpanString(rev.timestamp).toString(),
+                                    text = RelativeTime.format(rev.timestamp, LocalClock.current()),
                                     fontSize = 10.sp,
                                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
                                 )

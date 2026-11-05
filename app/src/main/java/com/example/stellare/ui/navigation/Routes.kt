@@ -5,6 +5,7 @@ object Routes {
     const val ONBOARDING = "onboarding"
     const val LOGIN = "login"
     const val REGISTRATION = "registration"
+    const val COMPLETE_PROFILE = "profile/complete"
 
     const val FEED = "feed"
     const val CALENDAR = "calendar"
@@ -12,9 +13,12 @@ object Routes {
     const val WALLET = "wallet"
 
     const val PROFILE_EDIT = "profile/edit"
+    const val PHONE_VERIFICATION = "profile/phone"
     const val MY_RATINGS = "ratings"
     const val MY_CLIENTS = "clients"
     const val FAQ = "faq"
+    const val SETTINGS = "settings"
+    const val DELETE_ACCOUNT = "settings/delete-account"
     const val POST_COMPOSER = "posts/new"
     const val VERIFICATION = "verification"
     const val VERIFICATION_ADMIN = "verification/admin"

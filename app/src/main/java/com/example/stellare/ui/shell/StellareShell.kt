@@ -1,14 +1,17 @@
 package com.example.stellare.ui.shell
 
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
@@ -37,6 +40,7 @@ fun StellareShell(container: AppContainer) {
     val pokazPasek = currentRoute in Routes.BOTTOM_BAR_ROUTES
 
     Scaffold(
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         bottomBar = {
             if (pokazPasek) {
                 BottomBar(currentRoute = currentRoute) { route ->
@@ -57,7 +61,13 @@ fun StellareShell(container: AppContainer) {
         )
     }
 
-    if (pokazArkuszProfilu) {
+    val authStatus by authViewModel.authStatus.collectAsStateWithLifecycle()
+    val arkuszMozeBycOtwarty = ProfileSheetVisibility.mayStayOpen(authStatus)
+    LaunchedEffect(arkuszMozeBycOtwarty) {
+        if (!arkuszMozeBycOtwarty) pokazArkuszProfilu = false
+    }
+
+    if (pokazArkuszProfilu && arkuszMozeBycOtwarty) {
         ProfileSheet(
             feedViewModel = feedViewModel,
             profileViewModel = profileViewModel,

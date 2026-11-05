@@ -1,5 +1,6 @@
 package com.example.stellare.verification
 
+import com.example.stellare.fakes.privateProfilesOf
 import com.example.stellare.data.model.UserModel
 import com.example.stellare.data.model.VerificationRequestModel
 import com.example.stellare.data.model.VerificationStatus
@@ -7,6 +8,7 @@ import com.example.stellare.data.repository.UserRepository
 import com.example.stellare.data.repository.VerificationRepository
 import com.example.stellare.fakes.FakeAuthDataSource
 import com.example.stellare.fakes.FakeFavoriteDataSource
+import com.example.stellare.fakes.FakeRatingDataSource
 import com.example.stellare.fakes.FakeUserDataSource
 import com.example.stellare.fakes.FakeVerificationDataSource
 import com.example.stellare.ui.verification.DocumentScanCompressionResult
@@ -48,7 +50,9 @@ class VerificationViewModelTest {
         val userRepository = UserRepository(
             FakeAuthDataSource(zalogowanyUid),
             userDataSource,
-            FakeFavoriteDataSource()
+            FakeFavoriteDataSource(),
+            FakeRatingDataSource(),
+            privateProfilesOf(userDataSource)
         )
         val vm = VerificationViewModel(
             VerificationRepository(verificationDataSource),
@@ -224,7 +228,7 @@ class VerificationViewModelTest {
             VerificationRequestModel(uid = "psych1", docImageBase64 = "x", docType = "dowod", status = VerificationStatus.PENDING)
         )
         val authDataSource = FakeAuthDataSource(initialUserId = null)
-        val userRepository = UserRepository(authDataSource, userDataSource, FakeFavoriteDataSource())
+        val userRepository = UserRepository(authDataSource, userDataSource, FakeFavoriteDataSource(), FakeRatingDataSource(), privateProfilesOf(userDataSource))
         val vm = VerificationViewModel(VerificationRepository(verificationDataSource), userRepository)
 
         val subskrypcja = launch { vm.myRequest.collect {} }

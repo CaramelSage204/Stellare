@@ -1,12 +1,16 @@
 package com.example.stellare.profile
 
+import com.example.stellare.fakes.privateProfilesOf
+import com.example.stellare.data.model.RatingModel
 import com.example.stellare.data.model.ReviewModel
+import com.example.stellare.data.model.averageRating
 import com.example.stellare.data.model.UserModel
 import com.example.stellare.data.repository.PostRepository
 import com.example.stellare.data.repository.ReviewRepository
 import com.example.stellare.data.repository.UserRepository
 import com.example.stellare.fakes.FakeAuthDataSource
 import com.example.stellare.fakes.FakeFavoriteDataSource
+import com.example.stellare.fakes.FakeRatingDataSource
 import com.example.stellare.fakes.FakePostDataSource
 import com.example.stellare.fakes.FakeReviewDataSource
 import com.example.stellare.fakes.FakeUserDataSource
@@ -32,13 +36,18 @@ class ProfileViewModelTest {
     @Before fun setUp() = Dispatchers.setMain(dispatcher)
     @After fun tearDown() = Dispatchers.resetMain()
 
+    private fun ratingPsychologa() = FakeRatingDataSource().apply {
+        ratings.value = mapOf("psych1" to RatingModel(sum = 8, count = 2))
+    }
+
     private fun profileViewModel(
         currentUserId: String,
         users: List<UserModel>,
         userDataSource: FakeUserDataSource = FakeUserDataSource(users),
-        reviewDataSource: FakeReviewDataSource = FakeReviewDataSource(userDataSource)
+        ratingDataSource: FakeRatingDataSource = FakeRatingDataSource(),
+        reviewDataSource: FakeReviewDataSource = FakeReviewDataSource(ratingDataSource)
     ): Pair<ProfileViewModel, FakeReviewDataSource> {
-        val userRepository = UserRepository(FakeAuthDataSource(currentUserId), userDataSource, FakeFavoriteDataSource())
+        val userRepository = UserRepository(FakeAuthDataSource(currentUserId), userDataSource, FakeFavoriteDataSource(), ratingDataSource, privateProfilesOf(userDataSource))
         val reviewRepository = ReviewRepository(reviewDataSource)
         val postRepository = PostRepository(FakePostDataSource())
         return ProfileViewModel(userRepository, reviewRepository, postRepository) to reviewDataSource
@@ -48,17 +57,20 @@ class ProfileViewModelTest {
     fun `addReview liczy srednia ocene i licznik psychologa`() = runTest(dispatcher) {
         val (vm, reviewDataSource) = profileViewModel(
             currentUserId = "pacjent1",
+            ratingDataSource = ratingPsychologa(),
             users = listOf(
                 UserModel(id = "pacjent1", firstName = "Jan", lastName = "Kowalski"),
-                UserModel(id = "psych1", rating = 4.0, ratingCount = 2)
+                UserModel(id = "psych1")
             )
         )
 
+        reviewDataSource.completions += "psych1_pacjent1"
         vm.addReview("psych1", 5, "Bardzo pomocny psycholog")
         advanceUntilIdle()
 
-        val (nowaOcena, nowyLicznik) = reviewDataSource.lastRatingUpdate!!
-        assertEquals(4.333333333333333, nowaOcena, 0.0000001)
+        val (nowaSuma, nowyLicznik) = reviewDataSource.lastRatingUpdate!!
+        assertEquals(13, nowaSuma)
+        assertEquals(4.333333333333333, averageRating(nowaSuma, nowyLicznik), 0.0000001)
         assertEquals(3, nowyLicznik)
     }
 
@@ -66,12 +78,14 @@ class ProfileViewModelTest {
     fun `addReview nadaje recenzji identyfikator psycholog_recenzent i reviewerId zalogowanego`() = runTest(dispatcher) {
         val (vm, reviewDataSource) = profileViewModel(
             currentUserId = "pacjent1",
+            ratingDataSource = ratingPsychologa(),
             users = listOf(
                 UserModel(id = "pacjent1", firstName = "Jan", lastName = "Kowalski"),
-                UserModel(id = "psych1", rating = 4.0, ratingCount = 2)
+                UserModel(id = "psych1")
             )
         )
 
+        reviewDataSource.completions += "psych1_pacjent1"
         vm.addReview("psych1", 5, "Bardzo pomocny psycholog")
         advanceUntilIdle()
 
@@ -86,10 +100,10 @@ class ProfileViewModelTest {
         val userDataSource = FakeUserDataSource(
             listOf(UserModel(id = "u1", firstName = "Stary", lastName = "Nazwisko", age = 20, bio = "Stare bio"))
         )
-        val userRepository = UserRepository(FakeAuthDataSource("u1"), userDataSource, FakeFavoriteDataSource())
+        val userRepository = UserRepository(FakeAuthDataSource("u1"), userDataSource, FakeFavoriteDataSource(), FakeRatingDataSource(), privateProfilesOf(userDataSource))
         val vm = ProfileViewModel(
             userRepository,
-            ReviewRepository(FakeReviewDataSource(userDataSource)),
+            ReviewRepository(FakeReviewDataSource(FakeRatingDataSource())),
             PostRepository(FakePostDataSource())
         )
 
@@ -127,7 +141,7 @@ class ProfileViewModelTest {
 
     @Test
     fun `reviewsFor zwraca tylko recenzje danego psychologa`() = runTest(dispatcher) {
-        val reviewDataSource = FakeReviewDataSource(FakeUserDataSource())
+        val reviewDataSource = FakeReviewDataSource(FakeRatingDataSource())
         reviewDataSource.reviews.value = listOf(
             ReviewModel(reviewId = "psych1_p1", psychologistId = "psych1", reviewerId = "p1"),
             ReviewModel(reviewId = "psych2_p1", psychologistId = "psych2", reviewerId = "p1")

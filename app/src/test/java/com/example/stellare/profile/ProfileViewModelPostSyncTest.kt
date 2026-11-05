@@ -1,5 +1,6 @@
 package com.example.stellare.profile
 
+import com.example.stellare.fakes.privateProfilesOf
 import com.example.stellare.data.model.AuthorSnapshot
 import com.example.stellare.data.model.PostModel
 import com.example.stellare.data.model.PostType
@@ -10,6 +11,7 @@ import com.example.stellare.data.repository.ReviewRepository
 import com.example.stellare.data.repository.UserRepository
 import com.example.stellare.fakes.FakeAuthDataSource
 import com.example.stellare.fakes.FakeFavoriteDataSource
+import com.example.stellare.fakes.FakeRatingDataSource
 import com.example.stellare.fakes.FakeReviewDataSource
 import com.example.stellare.fakes.FakeUserDataSource
 import com.example.stellare.fakes.RecordingPostDataSource
@@ -53,8 +55,8 @@ class ProfileViewModelPostSyncTest {
 
     private fun zbuduj(autor: UserModel, posty: List<PostModel>): Pair<ProfileViewModel, RecordingPostDataSource> {
         val userDataSource = FakeUserDataSource(listOf(autor))
-        val userRepository = UserRepository(FakeAuthDataSource(autor.id), userDataSource, FakeFavoriteDataSource())
-        val reviewRepository = ReviewRepository(FakeReviewDataSource(userDataSource))
+        val userRepository = UserRepository(FakeAuthDataSource(autor.id), userDataSource, FakeFavoriteDataSource(), FakeRatingDataSource(), privateProfilesOf(userDataSource))
+        val reviewRepository = ReviewRepository(FakeReviewDataSource(FakeRatingDataSource()))
         val postDataSource = RecordingPostDataSource(posty)
         val postRepository = PostRepository(postDataSource)
         return ProfileViewModel(userRepository, reviewRepository, postRepository) to postDataSource

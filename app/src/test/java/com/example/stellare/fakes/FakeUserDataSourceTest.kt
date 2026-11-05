@@ -1,11 +1,11 @@
 package com.example.stellare.fakes
 
+import com.example.stellare.data.model.CurrentUserRead
 import com.example.stellare.data.model.UserModel
 import com.example.stellare.data.model.UserRole
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
 import org.junit.Test
 
 class FakeUserDataSourceTest {
@@ -16,13 +16,17 @@ class FakeUserDataSourceTest {
     @Test
     fun `zwraca uzytkownika po identyfikatorze`() = runTest {
         val source = FakeUserDataSource(listOf(psycholog, pacjent))
-        assertEquals("Ala", source.getUser("p1").first()?.firstName)
+        assertEquals("Ala", (source.getUser("p1").first() as CurrentUserRead.Loaded).user.firstName)
     }
 
     @Test
     fun `zwraca null dla nieznanego identyfikatora`() = runTest {
         val source = FakeUserDataSource(listOf(psycholog))
-        assertNull(source.getUser("nie-ma").first())
+        assertEquals(
+            "nieznany identyfikator to potwierdzony brak dokumentu, nie awaria odczytu",
+            CurrentUserRead.Absent,
+            source.getUser("nie-ma").first()
+        )
     }
 
     @Test
@@ -36,6 +40,6 @@ class FakeUserDataSourceTest {
         val source = FakeUserDataSource(listOf(psycholog))
         source.saveUser(psycholog.copy(firstName = "Alicja"))
         assertEquals(1, source.users.value.size)
-        assertEquals("Alicja", source.getUser("p1").first()?.firstName)
+        assertEquals("Alicja", (source.getUser("p1").first() as CurrentUserRead.Loaded).user.firstName)
     }
 }

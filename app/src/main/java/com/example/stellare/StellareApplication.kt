@@ -9,6 +9,7 @@ class StellareApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        CurrentActivity.track(this)
         if (BuildConfig.USE_FIREBASE_EMULATOR) {
             connectToLocalEmulators()
         }

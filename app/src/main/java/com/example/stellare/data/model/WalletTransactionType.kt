@@ -4,5 +4,7 @@ enum class WalletTransactionType {
     TOPUP,
     BOOKING_PAYMENT,
     BOOKING_EARNING,
-    REFUND
+    REFUND,
+    TRANSFER_OUT,
+    WITHDRAWAL
 }

@@ -1,5 +1,6 @@
 package com.example.stellare.ui.posts
 
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -31,14 +32,14 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.stellare.data.model.UserRole
 import com.example.stellare.ui.constants.ALL_SPECIALIZATIONS
-import com.example.stellare.ui.dashboard.SpecializationChip
+import com.example.stellare.ui.components.SpecializationChip
 import com.example.stellare.ui.profile.ProfileViewModel
 import kotlinx.coroutines.launch
 
@@ -67,7 +68,7 @@ fun PostComposerScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Napisz ogłoszenie") },
+                title = { Text("Napisz ogłoszenie", maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Powrót")
@@ -99,7 +100,7 @@ fun PostComposerScreen(
                 label = { Text("Treść ogłoszenia") },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(180.dp),
+                    .heightIn(min = 180.dp),
                 shape = RoundedCornerShape(12.dp)
             )
 
@@ -118,7 +119,7 @@ fun PostComposerScreen(
                 ALL_SPECIALIZATIONS.forEach { specialization ->
                     val isSelected = selectedTags.contains(specialization)
                     SpecializationChip(
-                        text = specialization,
+                        label = specialization,
                         isSelected = isSelected,
                         onClick = {
                             selectedTags = if (isSelected) {
@@ -160,11 +161,11 @@ fun PostComposerScreen(
                 },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(52.dp),
+                    .heightIn(min = 52.dp),
                 shape = RoundedCornerShape(12.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
             ) {
-                Text("Opublikuj", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                Text("Opublikuj", color = MaterialTheme.colorScheme.onPrimary, fontWeight = FontWeight.Bold, fontSize = 16.sp)
             }
         }
     }

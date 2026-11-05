@@ -4,26 +4,25 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.example.stellare.data.model.UserRole
-import com.example.stellare.ui.chat.ChatViewModel
+import com.example.stellare.ui.components.StaleDataNotice
 import com.example.stellare.ui.profile.ProfileViewModel
+import java.util.TimeZone
 import com.example.stellare.ui.calendar.views.PatientCalendarView
 import com.example.stellare.ui.calendar.views.PsychologistCalendarView
 
@@ -32,23 +31,51 @@ import com.example.stellare.ui.calendar.views.PsychologistCalendarView
 fun CalendarScreen(
     viewModel: CalendarViewModel,
     profileViewModel: ProfileViewModel,
-    chatViewModel: ChatViewModel,
-    onOpenProfileSheet: () -> Unit,
-    onBack: () -> Unit
+    onOpenProfileSheet: () -> Unit
 ) {
     val currentUser by profileViewModel.currentUser.collectAsStateWithLifecycle()
-    val chatParticipants by chatViewModel.participants.collectAsStateWithLifecycle()
+    val profileReadFailure by profileViewModel.profileReadFailure.collectAsStateWithLifecycle()
+    val participantNames by viewModel.participantNames.collectAsStateWithLifecycle()
+    val selectedDayMillis by viewModel.selectedDayMillis.collectAsStateWithLifecycle()
+    val zone = remember { TimeZone.getDefault() }
+    val todayMillis = rememberTodayMillis(viewModel::nowMillis, zone)
+    val currentSelectedDay by rememberUpdatedState(selectedDayMillis)
+    var previousTodayMillis by remember { mutableLongStateOf(selectedDayMillis) }
+
+    LaunchedEffect(todayMillis) {
+        val followed = CalendarDays.followToday(currentSelectedDay, previousTodayMillis, todayMillis, zone)
+        previousTodayMillis = todayMillis
+        if (followed != currentSelectedDay) viewModel.selectDay(followed)
+    }
 
     val isPsych = currentUser?.role == UserRole.PSYCHOLOGIST || currentUser?.role == UserRole.PSYCHOLOGY_STUDENT
     val psychAppointments by viewModel.psychologistAppointments.collectAsStateWithLifecycle()
     val patientAppointments by viewModel.patientAppointments.collectAsStateWithLifecycle()
 
-    var showAddSlotDialog by remember { mutableStateOf(false) }
+    var showAddSlotDialog by rememberSaveable { mutableStateOf(false) }
+    val transferState by viewModel.transferState.collectAsStateWithLifecycle()
+    val appointmentsStale by viewModel.appointmentsStaleMessage.collectAsStateWithLifecycle()
+    val snackbarHostState = remember { SnackbarHostState() }
+
+    LaunchedEffect(transferState) {
+        val message = when (val state = transferState) {
+            is TransferState.Cancelled -> RefundMessages.afterCancel(state.outcome, viewerIsPsychologist = isPsych)
+            is TransferState.Reclaimed -> RefundMessages.afterReclaim(state.outcome)
+            is TransferState.Completed -> RefundMessages.afterComplete(state.outcome)
+            is TransferState.Failed -> state.message
+            else -> null
+        }
+        if (message != null) {
+            snackbarHostState.showSnackbar(message)
+            viewModel.resetTransferState()
+        }
+    }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
-                title = { Text("Kalendarz i Wizyty") },
+                title = { Text("Kalendarz i Wizyty", maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 navigationIcon = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         IconButton(onClick = onOpenProfileSheet) {
@@ -79,9 +106,6 @@ fun CalendarScreen(
                                 }
                             }
                         }
-                        IconButton(onClick = onBack) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Powrót")
-                        }
                     }
                 },
                 actions = {
@@ -99,7 +123,7 @@ fun CalendarScreen(
                 FloatingActionButton(
                     onClick = { showAddSlotDialog = true },
                     containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = Color.Black
+                    contentColor = MaterialTheme.colorScheme.onPrimary
                 ) {
                     Icon(Icons.Default.Add, contentDescription = "Dodaj wolny termin")
                 }
@@ -113,70 +137,53 @@ fun CalendarScreen(
                 .padding(16.dp)
         ) {
             if (currentUser == null) {
-                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                if (profileReadFailure != null) {
+                    StaleDataNotice(message = profileReadFailure, onRetry = profileViewModel::retryProfile)
+                } else {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                    }
                 }
                 return@Scaffold
             }
 
-            Card(
-                modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)),
-                shape = RoundedCornerShape(16.dp)
-            ) {
-                Row(
-                    modifier = Modifier.padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(48.dp)
-                            .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.DateRange,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(16.dp))
-                    Column {
-                        Text(
-                            text = if (isPsych) "Twój terminarz pracy" else "Twoje nadchodzące sesje",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 16.sp,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        Text(
-                            text = if (isPsych) "Definiuj wolne godziny i kontroluj zapisy pacjentów" else "Przeglądaj harmonogram spotkań z psychologami",
-                            fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                        )
-                    }
-                }
-            }
+            StaleDataNotice(message = profileReadFailure, onRetry = profileViewModel::retryProfile)
+            StaleDataNotice(message = appointmentsStale, onRetry = viewModel::retryAppointments)
 
             if (isPsych) {
                 PsychologistCalendarView(
                     appointments = psychAppointments,
-                    participants = chatParticipants,
+                    userId = currentUser?.id,
+                    participantNames = participantNames,
+                    selectedDayMillis = selectedDayMillis,
+                    todayMillis = todayMillis,
+                    zone = zone,
+                    nowProvider = viewModel::nowMillis,
                     showAddSlotDialog = showAddSlotDialog,
+                    onSelectDay = viewModel::selectDay,
                     onAddSlotDismiss = { showAddSlotDialog = false },
-                    onAddSlotConfirm = { date, time ->
-                        viewModel.addFreeSlot(date, time)
+                    onAddSlotConfirm = { startsAtMillis ->
+                        viewModel.addFreeSlot(startsAtMillis)
                         showAddSlotDialog = false
                     },
                     onCompleteAppointment = { viewModel.complete(it) },
+                    depositOf = viewModel::depositOf,
                     onCancelAppointment = { viewModel.cancel(it) },
                     onDeleteAppointment = { viewModel.deleteSlot(it) }
                 )
             } else {
                 PatientCalendarView(
                     appointments = patientAppointments,
-                    participants = chatParticipants,
-                    onCancelAppointment = { viewModel.cancel(it) }
+                    userId = currentUser?.id,
+                    participantNames = participantNames,
+                    selectedDayMillis = selectedDayMillis,
+                    todayMillis = todayMillis,
+                    zone = zone,
+                    nowProvider = viewModel::nowMillis,
+                    onSelectDay = viewModel::selectDay,
+                    depositOf = viewModel::depositOf,
+                    onCancelAppointment = { viewModel.cancel(it) },
+                    onReclaimAppointment = { viewModel.reclaim(it) }
                 )
             }
         }

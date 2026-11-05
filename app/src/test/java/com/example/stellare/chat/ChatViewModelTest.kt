@@ -1,5 +1,6 @@
 package com.example.stellare.chat
 
+import com.example.stellare.fakes.privateProfilesOf
 import com.example.stellare.data.model.ChatModel
 import com.example.stellare.data.model.NoteModel
 import com.example.stellare.data.model.UserModel
@@ -10,6 +11,7 @@ import com.example.stellare.data.repository.UserRepository
 import com.example.stellare.fakes.FakeAuthDataSource
 import com.example.stellare.fakes.FakeChatDataSource
 import com.example.stellare.fakes.FakeFavoriteDataSource
+import com.example.stellare.fakes.FakeRatingDataSource
 import com.example.stellare.fakes.FakeMessageDataSource
 import com.example.stellare.fakes.FakeNoteDataSource
 import com.example.stellare.fakes.FakeUserDataSource
@@ -51,7 +53,7 @@ class ChatViewModelTest {
         noteSource: FakeNoteDataSource = FakeNoteDataSource()
     ): ChatViewModel {
         val userDataSource = FakeUserDataSource(listOf(UserModel(id = psychId, role = UserRole.PSYCHOLOGIST)))
-        val userRepository = UserRepository(FakeAuthDataSource(psychId), userDataSource, FakeFavoriteDataSource())
+        val userRepository = UserRepository(FakeAuthDataSource(psychId), userDataSource, FakeFavoriteDataSource(), FakeRatingDataSource(), privateProfilesOf(userDataSource))
         val chatRepository = ChatRepository(chatSource, messageSource, noteSource)
         return ChatViewModel(chatRepository, userRepository)
     }
@@ -123,7 +125,7 @@ class ChatViewModelTest {
     fun `openChatWith zwraca null gdy zapis nowego czatu rzuca wyjatek`() = runTest(dispatcher) {
         val chatSource = ChatDataSourceZRzucajacymZapisem(FakeChatDataSource())
         val userDataSource = FakeUserDataSource(listOf(UserModel(id = "psych1", role = UserRole.PSYCHOLOGIST)))
-        val userRepository = UserRepository(FakeAuthDataSource("psych1"), userDataSource, FakeFavoriteDataSource())
+        val userRepository = UserRepository(FakeAuthDataSource("psych1"), userDataSource, FakeFavoriteDataSource(), FakeRatingDataSource(), privateProfilesOf(userDataSource))
         val chatRepository = ChatRepository(chatSource, FakeMessageDataSource(), FakeNoteDataSource())
         val vm = ChatViewModel(chatRepository, userRepository)
 
@@ -157,7 +159,7 @@ class ChatViewModelTest {
             )
         )
         val authDataSource = FakeAuthDataSource(initialUserId = null)
-        val userRepository = UserRepository(authDataSource, userDataSource, FakeFavoriteDataSource())
+        val userRepository = UserRepository(authDataSource, userDataSource, FakeFavoriteDataSource(), FakeRatingDataSource(), privateProfilesOf(userDataSource))
         val chatRepository = ChatRepository(FakeChatDataSource(), FakeMessageDataSource(), FakeNoteDataSource())
         val vm = ChatViewModel(chatRepository, userRepository)
 

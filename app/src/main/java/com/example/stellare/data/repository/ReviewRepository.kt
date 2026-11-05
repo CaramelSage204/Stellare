@@ -9,13 +9,9 @@ class ReviewRepository(private val reviewDataSource: ReviewDataSource) {
     fun getReviewsForPsychologistFlow(psychologistId: String): Flow<List<ReviewModel>> =
         reviewDataSource.getReviewsForPsychologist(psychologistId)
 
-    suspend fun insertReview(review: ReviewModel) =
-        reviewDataSource.saveReview(review)
+    suspend fun hasCompletedSession(psychologistId: String, patientId: String): Boolean =
+        reviewDataSource.hasCompletedSession(psychologistId, patientId)
 
-    suspend fun saveReviewWithRating(
-        review: ReviewModel,
-        psychologistId: String,
-        newRating: Double,
-        newRatingCount: Int
-    ) = reviewDataSource.saveReviewWithRating(review, psychologistId, newRating, newRatingCount)
+    suspend fun saveReviewWithRating(review: ReviewModel, psychologistId: String) =
+        reviewDataSource.saveReviewWithRating(review, psychologistId)
 }

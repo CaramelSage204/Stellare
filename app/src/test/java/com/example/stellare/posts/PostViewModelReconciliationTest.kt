@@ -1,5 +1,6 @@
 package com.example.stellare.posts
 
+import com.example.stellare.fakes.privateProfilesOf
 import com.example.stellare.data.model.AuthorSnapshot
 import com.example.stellare.data.model.PostModel
 import com.example.stellare.data.model.PostType
@@ -9,6 +10,7 @@ import com.example.stellare.data.repository.PostRepository
 import com.example.stellare.data.repository.UserRepository
 import com.example.stellare.fakes.FakeAuthDataSource
 import com.example.stellare.fakes.FakeFavoriteDataSource
+import com.example.stellare.fakes.FakeRatingDataSource
 import com.example.stellare.fakes.FakeUserDataSource
 import com.example.stellare.fakes.RecordingPostDataSource
 import com.example.stellare.ui.posts.PostViewModel
@@ -35,7 +37,7 @@ class PostViewModelReconciliationTest {
 
     private fun zbuduj(autor: UserModel, posty: List<PostModel>): Pair<PostViewModel, RecordingPostDataSource> {
         val userDataSource = FakeUserDataSource(listOf(autor))
-        val userRepository = UserRepository(FakeAuthDataSource(autor.id), userDataSource, FakeFavoriteDataSource())
+        val userRepository = UserRepository(FakeAuthDataSource(autor.id), userDataSource, FakeFavoriteDataSource(), FakeRatingDataSource(), privateProfilesOf(userDataSource))
         val postDataSource = RecordingPostDataSource(posty)
         val vm = PostViewModel(PostRepository(postDataSource), userRepository)
         return vm to postDataSource
@@ -86,7 +88,7 @@ class PostViewModelReconciliationTest {
         )
         val userDataSource = FakeUserDataSource(listOf(autor1, autor2))
         val authDataSource = FakeAuthDataSource(autor1.id)
-        val userRepository = UserRepository(authDataSource, userDataSource, FakeFavoriteDataSource())
+        val userRepository = UserRepository(authDataSource, userDataSource, FakeFavoriteDataSource(), FakeRatingDataSource(), privateProfilesOf(userDataSource))
         val postDataSource = RecordingPostDataSource(listOf(nieaktualny1, nieaktualny2))
         PostViewModel(PostRepository(postDataSource), userRepository)
 
@@ -104,7 +106,7 @@ class PostViewModelReconciliationTest {
     @Test
     fun `bez zalogowanego uzytkownika uzgodnienie nie wykonuje zadnego zapytania o ogloszenia`() = runTest(dispatcher) {
         val userDataSource = FakeUserDataSource(emptyList())
-        val userRepository = UserRepository(FakeAuthDataSource(null), userDataSource, FakeFavoriteDataSource())
+        val userRepository = UserRepository(FakeAuthDataSource(null), userDataSource, FakeFavoriteDataSource(), FakeRatingDataSource(), privateProfilesOf(userDataSource))
         val postDataSource = RecordingPostDataSource()
 
         PostViewModel(PostRepository(postDataSource), userRepository)

@@ -1,47 +1,60 @@
 import { afterAll, beforeAll, beforeEach, describe, it } from 'vitest'
 import { assertFails, assertSucceeds } from '@firebase/rules-unit-testing'
-import { doc, getDoc, setDoc, updateDoc, writeBatch } from 'firebase/firestore'
-import { authedDb, seed, setupEnv } from './helpers.js'
+import { deleteField, doc, getDoc, setDoc, updateDoc, writeBatch } from 'firebase/firestore'
+import { authedDb, seed, setupEnv , zalozUzytkownika } from './helpers.js'
 
 let env
+const DZIEN = 24 * 60 * 60 * 1000
+const ZA_TYDZIEN = Date.now() + 7 * DZIEN
+
+const depozyt = (over = {}) => ({
+  appointmentId: 'termin1', patientId: 'pacjent', psychologistId: 'psycholog',
+  amount: 80, status: 'HELD', ...over,
+})
+
+const rezerwujTermin = (b, db, uid = 'pacjent', id = 'termin1') => {
+  b.update(doc(db, 'appointments/' + id), { status: 'BOOKED', patientId: uid, notes: '' })
+  b.set(doc(db, 'escrows/' + id), depozyt({ appointmentId: id, patientId: uid }))
+  b.update(doc(db, 'users/' + uid + '/private/contact'), { coinsBalance: 500 - 80, escrowSettlement: id })
+}
 
 beforeAll(async () => { env = await setupEnv() })
 afterAll(async () => { await env.cleanup() })
 beforeEach(async () => {
   await env.clearFirestore()
   await seed(env, async (db) => {
-    await setDoc(doc(db, 'users/psycholog'), {
+    await zalozUzytkownika(db, 'users/psycholog', {
       id: 'psycholog', role: 'PSYCHOLOGIST', isVerified: true,
       isAdmin: false, coinsBalance: 0, pricePerSession: 80,
     })
-    await setDoc(doc(db, 'users/pacjent'), {
+    await zalozUzytkownika(db, 'users/pacjent', {
       id: 'pacjent', role: 'PATIENT', isVerified: false, isAdmin: false, coinsBalance: 500,
     })
-    await setDoc(doc(db, 'users/ofiara'), {
+    await zalozUzytkownika(db, 'users/ofiara', {
       id: 'ofiara', role: 'PATIENT', isVerified: false, isAdmin: false, coinsBalance: 500,
     })
-    await setDoc(doc(db, 'users/slup1'), {
+    await zalozUzytkownika(db, 'users/slup1', {
       id: 'slup1', role: 'PATIENT', isVerified: false, isAdmin: false, coinsBalance: 0,
     })
-    await setDoc(doc(db, 'users/slup2'), {
+    await zalozUzytkownika(db, 'users/slup2', {
       id: 'slup2', role: 'PATIENT', isVerified: false, isAdmin: false, coinsBalance: 0,
     })
-    await setDoc(doc(db, 'users/slup3'), {
+    await zalozUzytkownika(db, 'users/slup3', {
       id: 'slup3', role: 'PATIENT', isVerified: false, isAdmin: false, coinsBalance: 0,
     })
-    await setDoc(doc(db, 'users/psy_x'), {
+    await zalozUzytkownika(db, 'users/psy_x', {
       id: 'psy_x', role: 'PSYCHOLOGIST', isVerified: true, isAdmin: false, coinsBalance: 0,
     })
-    await setDoc(doc(db, 'users/x'), {
+    await zalozUzytkownika(db, 'users/x', {
       id: 'x', role: 'PSYCHOLOGIST', isVerified: true, isAdmin: false, coinsBalance: 0,
     })
     await setDoc(doc(db, 'appointments/termin1'), {
       appointmentId: 'termin1', psychologistId: 'psycholog', patientId: null,
-      date: '2026-10-01', time: '10:00', notes: '', status: 'FREE', priceCoins: 80,
+      startsAtMillis: ZA_TYDZIEN, date: '2026-10-01', time: '10:00', notes: '', status: 'FREE', priceCoins: 80,
     })
     await setDoc(doc(db, 'appointments/termin2'), {
       appointmentId: 'termin2', psychologistId: 'psycholog', patientId: null,
-      date: '2026-10-02', time: '11:00', notes: '', status: 'FREE', priceCoins: 80,
+      startsAtMillis: ZA_TYDZIEN, date: '2026-10-02', time: '11:00', notes: '', status: 'FREE', priceCoins: 80,
     })
   })
 })
@@ -49,34 +62,29 @@ beforeEach(async () => {
 describe('portfel — zachowanie monet', () => {
   it('nie pozwala dopisać monet obcej osobie bez pokrycia', async () => {
     const db = authedDb(env, 'pacjent')
-    await assertFails(updateDoc(doc(db, 'users/psycholog'), { coinsBalance: 999999 }))
+    await assertFails(updateDoc(doc(db, 'users/psycholog/private/contact'), { coinsBalance: 999999 }))
   })
 
   it('nie pozwala doładować sobie ponad limit jednorazowy', async () => {
     const db = authedDb(env, 'pacjent')
-    await assertFails(updateDoc(doc(db, 'users/pacjent'), { coinsBalance: 500 + 1001 }))
+    await assertFails(updateDoc(doc(db, 'users/pacjent/private/contact'), { coinsBalance: 500 + 1001 }))
   })
 
   it('pozwala doładować sobie w granicach limitu', async () => {
     const db = authedDb(env, 'pacjent')
-    await assertSucceeds(updateDoc(doc(db, 'users/pacjent'), { coinsBalance: 500 + 1000 }))
+    await assertSucceeds(updateDoc(doc(db, 'users/pacjent/private/contact'), { coinsBalance: 500 + 1000 }))
   })
 
   it('przepuszcza rezerwację, gdy monety się bilansują', async () => {
     const db = authedDb(env, 'pacjent')
     const batch = writeBatch(db)
     batch.update(doc(db, 'appointments/termin1'), { status: 'BOOKED', patientId: 'pacjent', notes: 'pierwsza sesja' })
-    batch.update(doc(db, 'users/pacjent'), { coinsBalance: 500 - 80, lastTransferTo: 'psycholog', lastTransferAmount: 80 })
-    batch.update(doc(db, 'users/psycholog'), { coinsBalance: 0 + 80 })
+    batch.update(doc(db, 'users/pacjent/private/contact'), { coinsBalance: 500 - 80, escrowSettlement: 'termin1' })
+    batch.set(doc(db, 'escrows/termin1'), depozyt())
     batch.set(doc(db, 'wallet_transactions/pacjent_t1'), {
       transactionId: 'pacjent_t1', userId: 'pacjent', counterpartyId: 'psycholog',
       appointmentId: 'termin1', amount: -80, type: 'BOOKING_PAYMENT',
       title: 'Opłata za wizytę', timestamp: Date.now(),
-    })
-    batch.set(doc(db, 'wallet_transactions/pacjent_termin1'), {
-      transactionId: 'pacjent_termin1', userId: 'psycholog', counterpartyId: 'pacjent',
-      appointmentId: 'termin1', amount: 80, type: 'BOOKING_EARNING',
-      title: 'Wpływ za wizytę', timestamp: Date.now(),
     })
     await assertSucceeds(batch.commit())
   })
@@ -84,17 +92,19 @@ describe('portfel — zachowanie monet', () => {
   it('odrzuca rezerwację, w której psycholog dostaje więcej, niż zapłacił pacjent', async () => {
     const db = authedDb(env, 'pacjent')
     const batch = writeBatch(db)
-    batch.update(doc(db, 'appointments/termin1'), { status: 'BOOKED', patientId: 'pacjent', notes: '' })
-    batch.update(doc(db, 'users/pacjent'), { coinsBalance: 500 - 80 })
-    batch.update(doc(db, 'users/psycholog'), { coinsBalance: 0 + 5000 })
+    rezerwujTermin(batch, db)
+    batch.update(doc(db, 'users/psycholog/private/contact'), { coinsBalance: 0 + 5000 })
     await assertFails(batch.commit())
   })
 
   it('odrzuca dopisanie monet psychologowi bez ruchu po stronie pacjenta', async () => {
+    await seed(env, async (s) => {
+      await updateDoc(doc(s, 'appointments/termin1'), { priceCoins: 0 })
+    })
     const db = authedDb(env, 'pacjent')
     const batch = writeBatch(db)
     batch.update(doc(db, 'appointments/termin1'), { status: 'BOOKED', patientId: 'pacjent', notes: '' })
-    batch.update(doc(db, 'users/psycholog'), { coinsBalance: 0 + 80 })
+    batch.update(doc(db, 'users/psycholog/private/contact'), { coinsBalance: 0 + 80 })
     await assertFails(batch.commit())
   })
 
@@ -126,13 +136,16 @@ describe('portfel — zachowanie monet', () => {
     await seed(env, async (db) => {
       await setDoc(doc(db, 'appointments/wlasny'), {
         appointmentId: 'wlasny', psychologistId: 'psycholog', patientId: null,
-        date: '2026-10-09', time: '12:00', notes: '', status: 'FREE', priceCoins: 80,
+        startsAtMillis: ZA_TYDZIEN, date: '2026-10-09', time: '12:00', notes: '', status: 'FREE', priceCoins: 80,
       })
+      await updateDoc(doc(db, 'users/psycholog/private/contact'), { coinsBalance: 500 })
     })
     const db = authedDb(env, 'psycholog')
-    await assertFails(updateDoc(doc(db, 'appointments/wlasny'), {
-      status: 'BOOKED', patientId: 'psycholog', notes: '',
-    }))
+    const b = writeBatch(db)
+    b.update(doc(db, 'appointments/wlasny'), { status: 'BOOKED', patientId: 'psycholog', notes: '' })
+    b.set(doc(db, 'escrows/wlasny'), depozyt({ appointmentId: 'wlasny', patientId: 'psycholog' }))
+    b.update(doc(db, 'users/psycholog/private/contact'), { coinsBalance: 500 - 80, escrowSettlement: 'wlasny' })
+    await assertFails(b.commit())
   })
 
   it('pacjent nie moze wystawic terminu we wlasnym imieniu', async () => {
@@ -146,18 +159,18 @@ describe('portfel — zachowanie monet', () => {
   it('nie pozwala rozgalezic przelewu na wielu odbiorcow w jednym batchu', async () => {
     const db = authedDb(env, 'pacjent')
     const b = writeBatch(db)
-    b.update(doc(db, 'users/pacjent'), { coinsBalance: 500 - 80, lastTransferTo: 'slup1', lastTransferAmount: 80 })
-    b.update(doc(db, 'users/slup1'), { coinsBalance: 80 })
-    b.update(doc(db, 'users/slup2'), { coinsBalance: 80 })
-    b.update(doc(db, 'users/slup3'), { coinsBalance: 80 })
+    b.update(doc(db, 'users/pacjent/private/contact'), { coinsBalance: 500 - 80 })
+    b.update(doc(db, 'users/slup1/private/contact'), { coinsBalance: 80 })
+    b.update(doc(db, 'users/slup2/private/contact'), { coinsBalance: 80 })
+    b.update(doc(db, 'users/slup3/private/contact'), { coinsBalance: 80 })
     await assertFails(b.commit())
   })
 
   it('nie pozwala zaplacic wiecej, niz sie ma — brak debetu', async () => {
     const db = authedDb(env, 'pacjent')
     const b = writeBatch(db)
-    b.update(doc(db, 'users/pacjent'), { coinsBalance: 500 - 1000000, lastTransferTo: 'slup1', lastTransferAmount: 1000000 })
-    b.update(doc(db, 'users/slup1'), { coinsBalance: 1000000 })
+    b.update(doc(db, 'users/pacjent/private/contact'), { coinsBalance: 500 - 1000000 })
+    b.update(doc(db, 'users/slup1/private/contact'), { coinsBalance: 1000000 })
     await assertFails(b.commit())
   })
 
@@ -173,14 +186,14 @@ describe('portfel — zachowanie monet', () => {
   it('nie pozwala zabrac monet obcej osobie', async () => {
     const db = authedDb(env, 'pacjent')
     const b = writeBatch(db)
-    b.update(doc(db, 'users/ofiara'), { coinsBalance: 500 - 80 })
-    b.update(doc(db, 'users/pacjent'), { coinsBalance: 500 + 80 })
+    b.update(doc(db, 'users/ofiara/private/contact'), { coinsBalance: 500 - 80 })
+    b.update(doc(db, 'users/pacjent/private/contact'), { coinsBalance: 500 + 80 })
     await assertFails(b.commit())
   })
 
   it('nie pozwala zaplacic z konta bez dokumentu uzytkownika', async () => {
     const db = authedDb(env, 'duch')
-    await assertFails(updateDoc(doc(db, 'users/slup1'), { coinsBalance: 80 }))
+    await assertFails(updateDoc(doc(db, 'users/slup1/private/contact'), { coinsBalance: 80 }))
   })
 
   it('nie pozwala oznaczyc wolnego terminu jako odbytego z dowolnym pacjentem', async () => {
@@ -202,8 +215,7 @@ describe('portfel — zachowanie monet', () => {
   it('nie pozwala zwielokrotnic wpisow o realnej kwocie w cudzej ksiedze', async () => {
     const db = authedDb(env, 'pacjent')
     const b = writeBatch(db)
-    b.update(doc(db, 'users/pacjent'), { coinsBalance: 420, lastTransferTo: 'psycholog', lastTransferAmount: 80 })
-    b.update(doc(db, 'users/psycholog'), { coinsBalance: 80 })
+    rezerwujTermin(b, db)
     for (let i = 0; i < 5; i++) {
       b.set(doc(db, 'wallet_transactions/dup' + i), {
         transactionId: 'dup' + i, userId: 'psycholog', counterpartyId: 'pacjent',
@@ -223,7 +235,7 @@ describe('portfel — zachowanie monet', () => {
 
   it('pozwala zapisac doladowanie jako osobna operacje, tak jak robi to aplikacja', async () => {
     const db = authedDb(env, 'pacjent')
-    await assertSucceeds(updateDoc(doc(db, 'users/pacjent'), { coinsBalance: 1000 }))
+    await assertSucceeds(updateDoc(doc(db, 'users/pacjent/private/contact'), { coinsBalance: 1000 }))
     await assertSucceeds(setDoc(doc(db, 'wallet_transactions/pacjent_top2'), {
       transactionId: 'pacjent_top2', userId: 'pacjent', counterpartyId: null,
       appointmentId: null, amount: 500, type: 'TOPUP',
@@ -241,8 +253,8 @@ describe('portfel — zachowanie monet', () => {
 describe('ksiega operacji — ataki rundy 3', () => {
   it('A1: zmyslona deklaracja przelewu wpisuje dowolna kwote do cudzej ksiegi', async () => {
     const db = authedDb(env, 'pacjent')
-    await assertFails(updateDoc(doc(db, 'users/pacjent'), {
-      lastTransferTo: 'ofiara', lastTransferAmount: -99999,
+    await assertFails(updateDoc(doc(db, 'users/pacjent/private/contact'), {
+      escrowSettlement: 'zmyslona', coinsBalance: 500 + 99999,
     }))
     await assertFails(setDoc(doc(db, 'wallet_transactions/zmyslona_ofiara'), {
       transactionId: 'zmyslona_ofiara', userId: 'ofiara', counterpartyId: 'pacjent',
@@ -256,11 +268,11 @@ describe('ksiega operacji — ataki rundy 3', () => {
   // jest juz legalna sciezka. Asercja atakujaca jest ostatnia i faktycznie sie wykonuje.
   it('A2: deklaracja po PRAWDZIWYM przelewie zyje dalej — wpisy widmo bez ruchu salda', async () => {
     await seed(env, async (s) => {
-      await setDoc(doc(s, 'users/pacjent'), {
+      await zalozUzytkownika(s, 'users/pacjent', {
         id: 'pacjent', role: 'PATIENT', isVerified: false, isAdmin: false,
-        coinsBalance: 420, lastTransferTo: 'psycholog', lastTransferAmount: 80,
+        coinsBalance: 420,
       })
-      await setDoc(doc(s, 'users/psycholog'), {
+      await zalozUzytkownika(s, 'users/psycholog', {
         id: 'psycholog', role: 'PSYCHOLOGIST', isVerified: true,
         isAdmin: false, coinsBalance: 80, pricePerSession: 80,
       })
@@ -281,8 +293,7 @@ describe('ksiega operacji — ataki rundy 3', () => {
   it('A3: jedna oplata, wiele wpisow w cudzej ksiedze — wystarczy zmieniac appointmentId', async () => {
     const db = authedDb(env, 'pacjent')
     const b = writeBatch(db)
-    b.update(doc(db, 'users/pacjent'), { coinsBalance: 420, lastTransferTo: 'psycholog', lastTransferAmount: 80 })
-    b.update(doc(db, 'users/psycholog'), { coinsBalance: 80 })
+    rezerwujTermin(b, db)
     for (let i = 0; i < 5; i++) {
       b.set(doc(db, 'wallet_transactions/wizyta' + i + '_psycholog'), {
         transactionId: 'wizyta' + i + '_psycholog', userId: 'psycholog', counterpartyId: 'pacjent',
@@ -295,9 +306,12 @@ describe('ksiega operacji — ataki rundy 3', () => {
 
   it('A4: zasiedzenie identyfikatora blokuje pozniejsza legalna rezerwacje', async () => {
     const napastnik = authedDb(env, 'pacjent')
-    await assertFails(updateDoc(doc(napastnik, 'users/pacjent'), {
-      lastTransferTo: 'psycholog', lastTransferAmount: 80,
+    await assertFails(updateDoc(doc(napastnik, 'users/pacjent/private/contact'), {
+      escrowSettlement: 'termin2', coinsBalance: 500 + 1500,
     }))
+    await assertFails(setDoc(doc(napastnik, 'escrows/termin2'), depozyt({
+      appointmentId: 'termin2', patientId: 'pacjent',
+    })))
     await assertFails(setDoc(doc(napastnik, 'wallet_transactions/termin2_psycholog'), {
       transactionId: 'termin2_psycholog', userId: 'psycholog', counterpartyId: 'pacjent',
       appointmentId: 'termin2', amount: 80, type: 'BOOKING_EARNING',
@@ -306,18 +320,11 @@ describe('ksiega operacji — ataki rundy 3', () => {
 
     const db = authedDb(env, 'ofiara')
     const b = writeBatch(db)
-    b.update(doc(db, 'appointments/termin2'), { status: 'BOOKED', patientId: 'ofiara', notes: '' })
-    b.update(doc(db, 'users/ofiara'), { coinsBalance: 420, lastTransferTo: 'psycholog', lastTransferAmount: 80 })
-    b.update(doc(db, 'users/psycholog'), { coinsBalance: 80 })
+    rezerwujTermin(b, db, 'ofiara', 'termin2')
     b.set(doc(db, 'wallet_transactions/ofiara_termin2_platnosc'), {
       transactionId: 'ofiara_termin2_platnosc', userId: 'ofiara', counterpartyId: 'psycholog',
       appointmentId: 'termin2', amount: -80, type: 'BOOKING_PAYMENT',
       title: 'Oplata za wizyte', timestamp: Date.now(),
-    })
-    b.set(doc(db, 'wallet_transactions/ofiara_termin2'), {
-      transactionId: 'ofiara_termin2', userId: 'psycholog', counterpartyId: 'ofiara',
-      appointmentId: 'termin2', amount: 80, type: 'BOOKING_EARNING',
-      title: 'Wplyw za wizyte', timestamp: Date.now(),
     })
     await assertSucceeds(b.commit())
   })
@@ -332,9 +339,9 @@ describe('ksiega operacji — ataki rundy 3', () => {
   // a jego padniecie ukrywalo fakt, ze asercja atakujaca dalej dziala.
   it('A5: kolizja sklejonego id — wpis dla psy_x zajmuje id wpisu dla x', async () => {
     await seed(env, async (s) => {
-      await setDoc(doc(s, 'users/pacjent'), {
+      await zalozUzytkownika(s, 'users/pacjent', {
         id: 'pacjent', role: 'PATIENT', isVerified: false, isAdmin: false,
-        coinsBalance: 420, lastTransferTo: 'psy_x', lastTransferAmount: 80,
+        coinsBalance: 420,
       })
     })
     const db = authedDb(env, 'pacjent')
@@ -360,8 +367,8 @@ describe('ksiega operacji — kontrole rundy 3', () => {
       })
     })
     const db = authedDb(env, 'pacjent')
-    await assertFails(updateDoc(doc(db, 'users/pacjent'), {
-      lastTransferTo: 'psycholog', lastTransferAmount: 80,
+    await assertFails(updateDoc(doc(db, 'users/pacjent/private/contact'), {
+      escrowSettlement: 'termin1', coinsBalance: 500 + 1500,
     }))
     await assertFails(setDoc(doc(db, 'wallet_transactions/termin1_psycholog'), {
       transactionId: 'termin1_psycholog', userId: 'psycholog', counterpartyId: 'pacjent',
@@ -387,25 +394,37 @@ describe('ksiega operacji — kontrole rundy 3', () => {
   })
 
   it('stala deklaracja nie pozwala powtorzyc samego ruchu salda', async () => {
-    const db = authedDb(env, 'pacjent')
+    await seed(env, async (db) => {
+      await zalozUzytkownika(db, 'users/psycholog', {
+        id: 'psycholog', role: 'PSYCHOLOGIST', isVerified: true,
+        isAdmin: false, coinsBalance: 0, pricePerSession: 1500,
+      })
+      await setDoc(doc(db, 'appointments/odbyta'), {
+        appointmentId: 'odbyta', psychologistId: 'psycholog', patientId: 'pacjent',
+        date: '2026-10-01', time: '10:00', notes: '', status: 'COMPLETED', priceCoins: 1500,
+        startsAtMillis: Date.now() - 2 * 60 * 60 * 1000,
+      })
+      await setDoc(doc(db, 'escrows/odbyta'), depozyt({ appointmentId: 'odbyta', amount: 1500 }))
+    })
+    const db = authedDb(env, 'psycholog')
     const b = writeBatch(db)
-    b.update(doc(db, 'users/pacjent'), { coinsBalance: 420, lastTransferTo: 'slup1', lastTransferAmount: 80 })
-    b.update(doc(db, 'users/slup1'), { coinsBalance: 80 })
+    b.update(doc(db, 'escrows/odbyta'), { status: 'RELEASED' })
+    b.update(doc(db, 'users/psycholog/private/contact'), { coinsBalance: 1500, escrowSettlement: 'odbyta' })
     await assertSucceeds(b.commit())
-    await assertFails(updateDoc(doc(db, 'users/slup1'), { coinsBalance: 160 }))
+    await assertFails(updateDoc(doc(db, 'users/psycholog/private/contact'), { coinsBalance: 3000 }))
   })
 
   it('rozgalezienie i debet nadal odparte', async () => {
     const db = authedDb(env, 'pacjent')
     const b1 = writeBatch(db)
-    b1.update(doc(db, 'users/pacjent'), { coinsBalance: 420, lastTransferTo: 'slup1', lastTransferAmount: 80 })
-    b1.update(doc(db, 'users/slup1'), { coinsBalance: 80 })
-    b1.update(doc(db, 'users/ofiara'), { coinsBalance: 580 })
+    b1.update(doc(db, 'users/pacjent/private/contact'), { coinsBalance: 420 })
+    b1.update(doc(db, 'users/slup1/private/contact'), { coinsBalance: 80 })
+    b1.update(doc(db, 'users/ofiara/private/contact'), { coinsBalance: 580 })
     await assertFails(b1.commit())
 
     const b2 = writeBatch(db)
-    b2.update(doc(db, 'users/pacjent'), { coinsBalance: -500, lastTransferTo: 'slup1', lastTransferAmount: 1000 })
-    b2.update(doc(db, 'users/slup1'), { coinsBalance: 1000 })
+    b2.update(doc(db, 'users/pacjent/private/contact'), { coinsBalance: -500 })
+    b2.update(doc(db, 'users/slup1/private/contact'), { coinsBalance: 1000 })
     await assertFails(b2.commit())
   })
 
@@ -426,6 +445,7 @@ describe('ksiega operacji — kontrole rundy 3', () => {
         await setDoc(doc(db, 'appointments/' + id), {
           appointmentId: id, psychologistId: 'psycholog', patientId: 'pacjent',
           date: '2026-10-03', time: '12:00', notes: '', status: 'BOOKED', priceCoins: 80,
+          startsAtMillis: id === 'zajety' ? Date.now() - 60 * 60 * 1000 : Date.now() + 3 * 24 * 60 * 60 * 1000,
         })
       }
     })
@@ -436,29 +456,22 @@ describe('ksiega operacji — kontrole rundy 3', () => {
     await assertSucceeds(updateDoc(doc(psy, 'appointments/zajety3'), { status: 'FREE', patientId: null, notes: '' }))
   })
 
-  // ETAP 5: regula wallet_transactions musi zyskac kierunek zwrotu — psycholog
-  // zapisujacy wpis REFUND do ksiegi pacjenta, wiazany z terminem, ktorego jest
-  // psychologiem. Przelew monet juz dziala, brakuje wylacznie wpisu w ksiedze.
-  it.skip('pelny zwrot inicjowany przez psychologa przechodzi — id sie nie zderza', async () => {
+  // Zwrot inicjowany przez psychologa: depozyt przechodzi na REFUNDED, saldo pacjenta
+  // rosnie o amount, a wpis REFUND w ksiedze pacjenta dowodzi tego przestawienia.
+  it('pelny zwrot inicjowany przez psychologa przechodzi — id sie nie zderza', async () => {
     await seed(env, async (db) => {
-      await setDoc(doc(db, 'users/psycholog'), {
-        id: 'psycholog', role: 'PSYCHOLOGIST', isVerified: true,
-        isAdmin: false, coinsBalance: 80, pricePerSession: 80,
-      })
       await setDoc(doc(db, 'appointments/termin1'), {
         appointmentId: 'termin1', psychologistId: 'psycholog', patientId: 'pacjent',
         date: '2026-10-01', time: '10:00', notes: '', status: 'BOOKED', priceCoins: 80,
+        startsAtMillis: Date.now() + 3 * 24 * 60 * 60 * 1000,
       })
-      await setDoc(doc(db, 'wallet_transactions/termin1_psycholog'), {
-        transactionId: 'termin1_psycholog', userId: 'psycholog', counterpartyId: 'pacjent',
-        appointmentId: 'termin1', amount: 80, type: 'BOOKING_EARNING', title: 'Wplyw', timestamp: 1,
-      })
+      await setDoc(doc(db, 'escrows/termin1'), depozyt())
     })
     const psy = authedDb(env, 'psycholog')
     const b = writeBatch(psy)
-    b.update(doc(psy, 'appointments/termin1'), { status: 'FREE', patientId: null, notes: '' })
-    b.update(doc(psy, 'users/psycholog'), { coinsBalance: 0, lastTransferTo: 'pacjent', lastTransferAmount: 80 })
-    b.update(doc(psy, 'users/pacjent'), { coinsBalance: 580 })
+    b.update(doc(psy, 'appointments/termin1'), { status: 'CANCELLED', cancelledBy: 'psycholog' })
+    b.update(doc(psy, 'escrows/termin1'), { status: 'REFUNDED' })
+    b.update(doc(psy, 'users/pacjent/private/contact'), { coinsBalance: 580, escrowSettlement: 'termin1' })
     b.set(doc(psy, 'wallet_transactions/psycholog_termin1_zwrot'), {
       transactionId: 'psycholog_termin1_zwrot', userId: 'psycholog', counterpartyId: 'pacjent',
       appointmentId: 'termin1', amount: -80, type: 'REFUND', title: 'Zwrot', timestamp: 1,
@@ -473,9 +486,12 @@ describe('ksiega operacji — kontrole rundy 3', () => {
   // ETAP 5: regula wallet_transactions musi zyskac kierunek zwrotu — psycholog
   // zapisujacy wpis REFUND do ksiegi pacjenta, wiazany z terminem, ktorego jest
   // psychologiem. Przelew monet juz dziala, brakuje wylacznie wpisu w ksiedze.
+  // POMINIETY SWIADOMIE (decyzja kontrolera, 2026-10-08): zwroty czesciowe NIE sa czescia Etapu 5.
+  // Plan wymaga kwoty rownej priceCoins i jednego zwrotu na wizyte; czesciowe wymagalyby sledzenia
+  // sumy zwroconej, czyli nowego pola i niezmiennika. Test zostaje jako gotowa specyfikacja.
   it.skip('drugi (czesciowy) zwrot dla tej samej wizyty przechodzi', async () => {
     await seed(env, async (db) => {
-      await setDoc(doc(db, 'users/psycholog'), {
+      await zalozUzytkownika(db, 'users/psycholog', {
         id: 'psycholog', role: 'PSYCHOLOGIST', isVerified: true,
         isAdmin: false, coinsBalance: 80, pricePerSession: 80,
       })
@@ -486,8 +502,7 @@ describe('ksiega operacji — kontrole rundy 3', () => {
     })
     const psy = authedDb(env, 'psycholog')
     const b = writeBatch(psy)
-    b.update(doc(psy, 'users/psycholog'), { coinsBalance: 40, lastTransferTo: 'pacjent', lastTransferAmount: 40 })
-    b.update(doc(psy, 'users/pacjent'), { coinsBalance: 540 })
+    b.update(doc(psy, 'users/pacjent/private/contact'), { coinsBalance: 540 })
     b.set(doc(psy, 'wallet_transactions/zwrot_rata2'), {
       transactionId: 'zwrot_rata2', userId: 'pacjent', counterpartyId: 'psycholog',
       appointmentId: 'termin1', amount: 40, type: 'REFUND', title: 'Rata 2', timestamp: 1,
@@ -495,27 +510,24 @@ describe('ksiega operacji — kontrole rundy 3', () => {
     await assertSucceeds(b.commit())
   })
 
-  // ETAP 5: ten test NIE dotyczy reguly ksiegi — pada na receivesPaidTransfer().
-  // Zada, zeby pacjent mogl OBNIZYC SALDO PSYCHOLOGA, co jest wprost zakazane przez
-  // rdzeniowy inwariant „obcemu mozna tylko dodac monety". NIE zazieleniac przez
-  // rozluznienie receivesPaidTransfer() — otworzyloby to sciaganie monet z cudzych kont.
-  // Zwrot musi inicjowac psycholog (jak test powyzej) albo serwer.
-  it.skip('zwrot inicjowany przez pacjenta przechodzi', async () => {
+  // Sedno depozytu: pacjent odwolujacy ponad 24 h przed terminem odzyskuje monety SAM,
+  // w jednej partii, bez udzialu psychologa (wczesniej zostawial slad i czekal na rozliczenie).
+  it('zwrot inicjowany przez pacjenta przechodzi', async () => {
     await seed(env, async (db) => {
-      await setDoc(doc(db, 'users/psycholog'), {
-        id: 'psycholog', role: 'PSYCHOLOGIST', isVerified: true,
-        isAdmin: false, coinsBalance: 80, pricePerSession: 80,
+      await zalozUzytkownika(db, 'users/pacjent', {
+        id: 'pacjent', role: 'PATIENT', isVerified: false, isAdmin: false, coinsBalance: 420,
       })
       await setDoc(doc(db, 'appointments/termin1'), {
         appointmentId: 'termin1', psychologistId: 'psycholog', patientId: 'pacjent',
-        date: '2026-10-01', time: '10:00', notes: '', status: 'BOOKED', priceCoins: 80,
+        startsAtMillis: ZA_TYDZIEN, date: '2026-10-01', time: '10:00', notes: '', status: 'BOOKED', priceCoins: 80,
       })
+      await setDoc(doc(db, 'escrows/termin1'), depozyt())
     })
     const pac = authedDb(env, 'pacjent')
     const b = writeBatch(pac)
-    b.update(doc(pac, 'appointments/termin1'), { status: 'FREE', patientId: null, notes: '' })
-    b.update(doc(pac, 'users/psycholog'), { coinsBalance: 0 })
-    b.update(doc(pac, 'users/pacjent'), { coinsBalance: 580 })
+    b.update(doc(pac, 'appointments/termin1'), { status: 'CANCELLED', cancelledBy: 'pacjent' })
+    b.update(doc(pac, 'escrows/termin1'), { status: 'REFUNDED' })
+    b.update(doc(pac, 'users/pacjent/private/contact'), { coinsBalance: 500, escrowSettlement: 'termin1' })
     await assertSucceeds(b.commit())
   })
 })
@@ -529,7 +541,7 @@ describe('ksiega operacji — runda 4', () => {
   it('nie pozwala dopisac wplywu psychologowi, u ktorego sie nie rezerwuje', async () => {
     const db = authedDb(env, 'pacjent')
     const b = writeBatch(db)
-    b.update(doc(db, 'users/pacjent'), { coinsBalance: 420 })
+    b.update(doc(db, 'users/pacjent/private/contact'), { coinsBalance: 420 })
     b.set(doc(db, 'wallet_transactions/fikcja'), {
       transactionId: 'fikcja', userId: 'psycholog', counterpartyId: 'pacjent',
       appointmentId: 'nieistniejaca', amount: 80, type: 'BOOKING_EARNING',
@@ -549,7 +561,7 @@ describe('ksiega operacji — runda 4', () => {
 
   it('PRZYWROCONE: klient zapisuje wpis z automatycznym identyfikatorem', async () => {
     const db = authedDb(env, 'pacjent')
-    await assertSucceeds(updateDoc(doc(db, 'users/pacjent'), { coinsBalance: 1000 }))
+    await assertSucceeds(updateDoc(doc(db, 'users/pacjent/private/contact'), { coinsBalance: 1000 }))
     await assertSucceeds(setDoc(doc(db, 'wallet_transactions/kQ7x9ZaBcDeF'), {
       transactionId: 'kQ7x9ZaBcDeF', userId: 'pacjent', counterpartyId: null,
       appointmentId: null, amount: 500, type: 'TOPUP',
@@ -567,38 +579,45 @@ describe('ksiega operacji — runda 4', () => {
     })
     const db = authedDb(env, 'pacjent')
     const b = writeBatch(db)
-    b.update(doc(db, 'appointments/termin1'), { status: 'BOOKED', patientId: 'pacjent', notes: '' })
-    b.update(doc(db, 'users/pacjent'), { coinsBalance: 420, lastTransferTo: 'psycholog', lastTransferAmount: 80 })
-    b.update(doc(db, 'users/psycholog'), { coinsBalance: 80 })
-    b.set(doc(db, 'wallet_transactions/nowy_wplyw'), {
-      transactionId: 'nowy_wplyw', userId: 'psycholog', counterpartyId: 'pacjent',
-      appointmentId: 'termin1', amount: 80, type: 'BOOKING_EARNING',
-      title: 'Wplyw z drugiej rezerwacji', timestamp: 2,
+    rezerwujTermin(b, db)
+    b.set(doc(db, 'wallet_transactions/nowa_platnosc'), {
+      transactionId: 'nowa_platnosc', userId: 'pacjent', counterpartyId: 'psycholog',
+      appointmentId: 'termin1', amount: -80, type: 'BOOKING_PAYMENT',
+      title: 'Oplata z drugiej rezerwacji', timestamp: 2,
     })
     await assertSucceeds(b.commit())
   })
 
   // ŚWIADOME OGRANICZENIE (ruling R17, zawężone przez R19). Kto w TYM SAMYM zatwierdzeniu
-  // realnie rezerwuje wolny termin (FREE→BOOKED), może przy okazji dopisać psychologowi
-  // nadmiarowe wpisy o DODATNIEJ kwocie. Kosztuje to napastnika jedną realną rezerwację
-  // na serię i nie da się tego powtórzyć w kolejnych commitach.
-  // Saldo pozostaje szczelne — zmienia się wyłącznie wyświetlana historia.
-  //
-  // Trzy próby szczelnego zamknięcia tego (deterministyczne id, wiązanie z deltą salda,
-  // wiązanie z zapamiętaną deklaracją przelewu) zepsuły kolejno: doładowanie portfela,
-  // ponowną rezerwację zwolnionego terminu i wszystkie zapisy do księgi z klienta.
-  // Szczelne zamknięcie wymaga serwera. NIE „naprawiać" bez przeczytania task-4-report.md.
-  it('ZNANE OGRANICZENIE: rezerwujacy moze dopisac nadmiarowe wpisy w ksiedze psychologa', async () => {
-    const db = authedDb(env, 'pacjent')
-    const b = writeBatch(db)
-    b.update(doc(db, 'appointments/termin1'), { status: 'BOOKED', patientId: 'pacjent', notes: '' })
-    b.update(doc(db, 'users/pacjent'), { coinsBalance: 420, lastTransferTo: 'psycholog', lastTransferAmount: 80 })
-    b.update(doc(db, 'users/psycholog'), { coinsBalance: 80 })
-    b.set(doc(db, 'wallet_transactions/nadmiar1'), {
-      transactionId: 'nadmiar1', userId: 'psycholog', counterpartyId: 'pacjent',
-      appointmentId: 'termin1', amount: 99999, type: 'BOOKING_EARNING',
-      title: 'Wpis nadmiarowy', timestamp: 1,
+  // wyplaca depozyt psychologowi po pozdnym odwolaniu, moze przy okazji dopisac mu nadmiarowe
+  // wpisy w ksiedze. Od depozytu kwota wpisu musi byc rowna amount, wiec nie da sie juz wpisac
+  // dowolnej sumy - zostaje wylacznie powielenie wpisu o kwocie amount. Saldo pozostaje
+  // szczelne: zmienia sie wylacznie wyswietlana historia. Szczelne zamkniecie wymaga serwera.
+  it('ZNANE OGRANICZENIE: wyplacajacy moze dopisac powielone wpisy w ksiedze psychologa', async () => {
+    await seed(env, async (s) => {
+      await setDoc(doc(s, 'appointments/termin1'), {
+        appointmentId: 'termin1', psychologistId: 'psycholog', patientId: 'pacjent',
+        date: '2026-10-01', time: '10:00', notes: '', status: 'CANCELLED', cancelledBy: 'pacjent', priceCoins: 80,
+        startsAtMillis: Date.now() + 2 * 60 * 60 * 1000,
+      })
+      await setDoc(doc(s, 'escrows/termin1'), depozyt())
     })
+    const db = authedDb(env, 'pacjent')
+    const wpisPsychologa = (id, amount) => ({
+      transactionId: id, userId: 'psycholog', counterpartyId: 'pacjent',
+      appointmentId: 'termin1', amount, type: 'BOOKING_EARNING', title: 'Wpis', timestamp: 1,
+    })
+    const nadmiar = writeBatch(db)
+    nadmiar.update(doc(db, 'escrows/termin1'), { status: 'RELEASED' })
+    nadmiar.update(doc(db, 'users/psycholog/private/contact'), { coinsBalance: 80, escrowSettlement: 'termin1' })
+    nadmiar.set(doc(db, 'wallet_transactions/nadmiar1'), wpisPsychologa('nadmiar1', 99999))
+    await assertFails(nadmiar.commit())
+
+    const b = writeBatch(db)
+    b.update(doc(db, 'escrows/termin1'), { status: 'RELEASED' })
+    b.update(doc(db, 'users/psycholog/private/contact'), { coinsBalance: 80, escrowSettlement: 'termin1' })
+    b.set(doc(db, 'wallet_transactions/nadmiar1'), wpisPsychologa('nadmiar1', 80))
+    b.set(doc(db, 'wallet_transactions/nadmiar2'), wpisPsychologa('nadmiar2', 80))
     await assertSucceeds(b.commit())
   })
 })
@@ -641,7 +660,7 @@ describe('ksiega operacji — K1: getAfter bez rezerwacji', () => {
 
 // ---------------------------------------------------------------------------
 // RUNDA DODATKOWA (przy okazji Zadania 6) — martwa gałąź sentinela
-// lastTransferTo oraz brakująca walidacja pola type w księdze operacji.
+// deklaracja rozliczenia oraz brakująca walidacja pola type w księdze operacji.
 // ---------------------------------------------------------------------------
 
 describe('portfel — sentinel przelewu i walidacja typu operacji', () => {
@@ -665,15 +684,25 @@ describe('portfel — sentinel przelewu i walidacja typu operacji', () => {
     }
   })
 
-  it('wyzerowanie deklaracji przelewu przechodzi bez zmiany salda', async () => {
+  it('wyzerowanie deklaracji rozliczenia przechodzi bez zmiany salda', async () => {
     await seed(env, async (s) => {
-      await updateDoc(doc(s, 'users/pacjent'), {
-        lastTransferTo: 'psycholog', lastTransferAmount: 80,
-      })
+      await updateDoc(doc(s, 'users/pacjent/private/contact'), { escrowSettlement: 'termin1' })
     })
     const db = authedDb(env, 'pacjent')
-    await assertSucceeds(updateDoc(doc(db, 'users/pacjent'), {
-      lastTransferTo: null, lastTransferAmount: 0,
-    }))
+    await assertSucceeds(updateDoc(doc(db, 'users/pacjent/private/contact'), { escrowSettlement: deleteField() }))
+    await assertSucceeds(updateDoc(doc(db, 'users/pacjent/private/contact'), { escrowSettlement: null }))
   })
+})
+
+describe('portfel — typy przelewu i wyplaty', () => {
+  for (const typ of ['TRANSFER_OUT', 'WITHDRAWAL']) {
+    it('przepuszcza wlasny wpis typu ' + typ, async () => {
+      const db = authedDb(env, 'pacjent')
+      await assertSucceeds(setDoc(doc(db, 'wallet_transactions/nowy_' + typ), {
+        transactionId: 'nowy_' + typ, userId: 'pacjent', counterpartyId: null,
+        appointmentId: null, amount: -50, type: typ,
+        title: 'Operacja ' + typ, timestamp: 1,
+      }))
+    })
+  }
 })

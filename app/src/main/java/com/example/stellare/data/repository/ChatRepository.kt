@@ -13,7 +13,6 @@ class ChatRepository(
     private val messageDataSource: MessageDataSource,
     private val noteDataSource: NoteDataSource
 ) {
-    // Chats
     fun getChatsForUserFlow(userId: String): Flow<List<ChatModel>> =
         chatDataSource.getChatsForUser(userId)
 
@@ -28,14 +27,12 @@ class ChatRepository(
 
     fun newChatId(): String = chatDataSource.newChatId()
 
-    // Messages
     fun getMessagesForChatFlow(chatId: String): Flow<List<MessageModel>> =
         messageDataSource.getMessagesForChat(chatId)
 
     suspend fun insertMessage(message: MessageModel) =
         messageDataSource.saveMessage(message)
 
-    // Notes
     fun getNotesForChatFlow(chatId: String): Flow<List<NoteModel>> =
         noteDataSource.getNotesForChat(chatId)
 

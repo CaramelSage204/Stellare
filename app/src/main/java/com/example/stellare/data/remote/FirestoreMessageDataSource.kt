@@ -4,6 +4,7 @@ import android.util.Log
 import com.example.stellare.data.model.MessageModel
 import com.google.firebase.Firebase
 import com.google.firebase.firestore.Query
+import com.google.firebase.firestore.QuerySnapshot
 import com.google.firebase.firestore.firestore
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
@@ -37,8 +38,16 @@ class FirestoreMessageDataSource : MessageDataSource {
                     Log.e("FirestoreMessageDS", "getMessagesForChat failed for chatId=$chatId", error)
                     return@addSnapshotListener
                 }
-                trySend(snap?.toObjects(MessageModel::class.java) ?: emptyList())
+                trySend(messagesOf(snap))
             }
         awaitClose { listener.remove() }
     }
+
+    // Tozsamosc wiadomosci pochodzi z identyfikatora dokumentu, nigdy z pola
+    // "messageId". Pole pisze klient, wiec dwie wiadomosci moga twierdzic, ze sa
+    // ta sama wiadomoscia - a messageId jest kluczem listy na ekranie rozmowy.
+    private fun messagesOf(snapshot: QuerySnapshot?): List<MessageModel> =
+        snapshot?.documents?.mapNotNull { document ->
+            document.toObject(MessageModel::class.java)?.copy(messageId = document.id)
+        } ?: emptyList()
 }

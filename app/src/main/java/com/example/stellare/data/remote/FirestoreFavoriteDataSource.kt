@@ -30,13 +30,12 @@ class FirestoreFavoriteDataSource : FavoriteDataSource {
     }
 
     override suspend fun saveFavorite(favorite: FavoriteModel) {
-        // Use a composite ID to prevent duplicates and make deletion easier
-        val docId = "${favorite.userId}_${favorite.psychologistId}"
-        collection.document(docId).set(favorite).await()
+        collection.document(compositeId(favorite.userId, favorite.psychologistId)).set(favorite).await()
     }
 
     override suspend fun deleteFavorite(userId: String, psychologistId: String) {
-        val docId = "${userId}_${psychologistId}"
-        collection.document(docId).delete().await()
+        collection.document(compositeId(userId, psychologistId)).delete().await()
     }
+
+    private fun compositeId(userId: String, psychologistId: String): String = "${userId}_${psychologistId}"
 }

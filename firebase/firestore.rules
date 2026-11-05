@@ -20,48 +20,56 @@ service cloud.firestore {
       return request.resource.data.diff(resource.data).affectedKeys().hasOnly(fields);
     }
 
+    // Numer w profilu to twierdzenie klienta, chyba ze reguly moga je sprawdzic.
+    // Sprawdzic mozna jedno: request.auth.token.phone_number jest w tokenie dopiero po
+    // powiazaniu numeru z kontem w Firebase Auth (SMS z kodem), klient nie moze go podrobic.
+    // Dlatego niepusty phone w profilu musi byc dokladnie tym numerem. Pusty zawsze wolno.
+    function phoneMatchesVerifiedNumber() {
+      let phone = request.resource.data.get('phone', '');
+      return phone == '' || phone == request.auth.token.get('phone_number', null);
+    }
+
+    // Przy edycji numer mozna wyczyscic tylko wtedy, gdy token nie ma phone_number: posiadacz
+    // potwierdzonego numeru nie straci go przez zapis ze starego modelu z pustym phone.
+    function phoneUpdateAllowed() {
+      let phone = request.resource.data.get('phone', '');
+      let verified = request.auth.token.get('phone_number', null);
+      return unchanged('phone') || phone == verified || (phone == '' && verified == null);
+    }
+
     function jestUczestnikiem(chatId) {
       return isSignedIn()
         && request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants;
     }
 
-    // Doładowanie portfela. ŚWIADOME OGRANICZENIE: bez serwera nie da się
-    // potwierdzić, że płatność wpłynęła. Limit ogranicza skalę nadużycia.
-    function topUpWithinLimit() {
-      return request.resource.data.coinsBalance - resource.data.coinsBalance <= 1000;
-    }
-
-    // Zasada zachowania monet: ile przybywa odbiorcy, tyle ubywa płacącemu
-    // w tym samym zatwierdzeniu. getAfter() widzi stan po zapisie.
-    function receivesPaidTransfer() {
-      let kwota = request.resource.data.coinsBalance - resource.data.coinsBalance;
-      let platnik = /databases/$(database)/documents/users/$(request.auth.uid);
-      let przed = get(platnik).data.coinsBalance;
-      let po = getAfter(platnik).data;
-      return kwota is int
-        && kwota > 0
-        && po.coinsBalance == przed - kwota
-        && po.coinsBalance >= 0
-        && po.get('lastTransferTo', '') == resource.id
-        && po.get('lastTransferAmount', 0) == kwota;
-    }
-
-    // Wpis w cudzej księdze wolno utworzyć wyłącznie psychologowi, u którego
-    // zapisujący w tym samym zatwierdzeniu faktycznie rezerwuje wizytę.
+    // Wpisy w CUDZEJ księdze dowodzą przestawienia depozytu w tej samej partii, nie zmiany
+    // statusu wizyty (wizyta może się zmienić bez ruchu monet). Wpis we WŁASNEJ księdze jest
+    // wyłącznie informacją i monet nie rusza — saldo pilnuje users/escrows.
     //
-    // UWAGA na getAfter(): na dokumencie, którego commit NIE DOTYKA, zwraca stan bieżący.
-    // Samo `getAfter(x).status == 'BOOKED'` nie dowodzi więc, że rezerwacja dzieje się teraz —
-    // spełnia je każdy termin już zarezerwowany. Dlatego poniżej jest też `get(x).status == 'FREE'`:
-    // dopiero para get+getAfter z wymaganą RÓŻNICĄ dowodzi, że commit faktycznie zmienia dokument.
-    // Ten sam wzorzec, poprawnie zastosowany, jest w receivesPaidTransfer().
-    function bookingCounterpartyEntry() {
-      let wizyta = /databases/$(database)/documents/appointments/$(request.resource.data.appointmentId);
-      return request.resource.data.counterpartyId == request.auth.uid
-        && request.resource.data.amount > 0
-        && get(wizyta).data.status == 'FREE'
-        && getAfter(wizyta).data.patientId == request.auth.uid
-        && getAfter(wizyta).data.status == 'BOOKED'
-        && get(wizyta).data.psychologistId == request.resource.data.userId;
+    // Wypłata: pacjent rozlicza późne odwołanie, więc to on zapisuje wpis BOOKING_EARNING
+    // w księdze psychologa. Zwrot: psycholog zapisuje wpis REFUND w księdze pacjenta.
+    // Pacjent nie ma ścieżki do wpisu REFUND w cudzej księdze i NIE przywracać jej
+    // „dla symetrii": jego zwrot jest we własnej księdze.
+    function wpisWyplatyNaKoncuPsychologa() {
+      let d = /databases/$(database)/documents/escrows/$(request.resource.data.appointmentId);
+      return request.resource.data.type == 'BOOKING_EARNING'
+        && get(d).data.status == 'HELD'
+        && getAfter(d).data.status == 'RELEASED'
+        && request.auth.uid == get(d).data.patientId
+        && request.resource.data.counterpartyId == request.auth.uid
+        && request.resource.data.userId == get(d).data.psychologistId
+        && request.resource.data.amount == get(d).data.amount;
+    }
+
+    function wpisZwrotuNaKoncuPacjenta() {
+      let d = /databases/$(database)/documents/escrows/$(request.resource.data.appointmentId);
+      return request.resource.data.type == 'REFUND'
+        && get(d).data.status == 'HELD'
+        && getAfter(d).data.status == 'REFUNDED'
+        && request.auth.uid == get(d).data.psychologistId
+        && request.resource.data.counterpartyId == request.auth.uid
+        && request.resource.data.userId == get(d).data.patientId
+        && request.resource.data.amount == get(d).data.amount;
     }
 
     // Lista administratorów. Wpisy dodaje się wyłącznie ręcznie z konsoli Firebase.
@@ -70,64 +78,166 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // Agregat oceny mieszka w ratings/{uid}. Pole ratingSum/ratingCount NIE MA wracać
+    // do users: dopóki nikt go nie czyta jest bezwładne, ale to zbyt krucha gwarancja.
+    // Przy tworzeniu pola są zabronione. Przy edycji wolno je zostawić BEZ ZMIAN albo USUNĄĆ —
+    // stare profile jeszcze je mają. Klient ich nie zapisuje i nie kasuje: saveUser scala wyłącznie
+    // pola profilu (mergeFields), więc stare ratingSum/ratingCount ZOSTAJĄ w dokumencie. Wcześniej
+    // pełny .set je kasował i na tym samonaprawianiu opierało się bezpieczeństwo tej reguły; teraz
+    // nie wolno na nim polegać, a pola pozostawione bez zmian muszą przechodzić. unchanged() sam odmawia usunięcia (brak pola daje null, a null != stara
+    // wartość), dlatego warunek jest rozłączny per pole: nieobecne w wyniku przechodzi.
+    // Dopisać pole, którego dokument nie miał, albo zmienić jego wartość nadal nie wolno.
+    // Usunięcie jest bezpieczne WYŁĄCZNIE dlatego, że żaden odczyt oceny nie idzie już z users
+    // (ocena żyje w ratings/{uid}); przywrócenie odczytu z users otwiera tę regułę na zerowanie oceny.
+    function bezOcenyWUsers() {
+      return (!request.resource.data.keys().hasAny(['ratingSum']) || unchanged('ratingSum'))
+        && (!request.resource.data.keys().hasAny(['ratingCount']) || unchanged('ratingCount'));
+    }
+
+    // Lista DOZWOLONA obowiazuje tylko przy tworzeniu profilu publicznego. Przy edycji
+    // request.resource.data to dokument PO scaleniu, wiec stary profil z polami z wczesniejszych
+    // etapow nie spelnilby hasOnly i kazda jego edycja dostalaby odmowe - dlatego update zostaje
+    // przy liscie ZAKAZANEJ (bezPolPrywatnych). Lista musi odpowiadac UserProfileFields.NAMES
+    // bez pol prywatnych; pilnuje tego test private-profile.test.js ('klucze wysylane przez klienta').
+    function bezPolPrywatnych() {
+      return !request.resource.data.keys().hasAny(['phone', 'email', 'coinsBalance']);
+    }
+
+    // Profil publiczny. Czyta go kazdy zalogowany, wiec nosi wylacznie to, co jest jawne z zalozenia
+    // produktu (imie, rola, specjalizacje, wiek i plec - szukanie psychologa filtruje po wieku i
+    // plci). Telefon, e-mail i saldo leza w users/{uid}/private/contact. Zakaz tych pol w create
+    // i update jest rownie wazny jak zamkniety odczyt: bez niego dopisanie telefonu do dokumentu
+    // publicznego otwiera wyciek bocznymi drzwiami. Profil sprzed przeniesienia, ktory jeszcze
+    // je ma, przechodzi update dopiero gdy zapis je usuwa (deleteField) - to wymusza migracje.
     match /users/{uid} {
       allow read: if isSignedIn();
 
+      // Tozsamoscia profilu jest uid, czyli identyfikator dokumentu. Pole "id" pisal
+      // klient i nic go z uid nie wiazalo, a getCurrentUser().id steruje authorId
+      // ogloszenia, patientId rezerwacji, reviewerId opinii i userId wpisu ksiegi:
+      // rozjechane pole zamienialo publikacje, rezerwacje i wystawienie opinii w odmowe
+      // regul z komunikatem "nie udalo sie". To najszersze wejscie tej klasy bledu.
+      //
+      // Warunek obowiazuje takze przy edycji (request.resource.data to dokument PO
+      // scaleniu), w tym na sciezce administratora: zatwierdzenie weryfikacji pisze
+      // tylko isVerified + usuniecie pol prywatnych, wiec "id" bierze sie ze scalenia.
+      // Dla profilu z aplikacji jest rowne uid od pierwszego commitu z Firestore
+      // (saveUser zawsze pisze cale UserProfileFields.profileFields, w tym "id").
+      //
+      // ZASIEG: obrona w glab. Create wymaga request.auth.uid == uid, wiec
+      // uwierzytelniony klient moze zatruc wylacznie wlasny profil; droga z pominieciem
+      // regul (Admin SDK, konsola) zostaje otwarta. Naprawa po stronie klienta to
+      // mapowanie tozsamosci z identyfikatora dokumentu w FirestoreUserDataSource.
+      // Pole szczatkowe: klient bierze tozsamosc z uid, nie z niego. Dlatego
+      // get(..., uid), a nie == wprost — pole brakujace nie klamie, a wariant
+      // scisly zablokowalby NA ZAWSZE edycje profilu zapisanego spoza aplikacji
+      // bez tego pola, w tym zatwierdzenie weryfikacji przez administratora
+      // (verificationApproval() pisze tylko isVerified i nie wysyla "id").
+      // Pelne uzasadnienie przy tej samej funkcji w match /posts.
+      function tozsamoscZIdentyfikatoraDokumentu() {
+        return request.resource.data.get('id', uid) == uid;
+      }
+
       allow create: if isSignedIn()
         && request.auth.uid == uid
+        && tozsamoscZIdentyfikatoraDokumentu()
         && request.resource.data.isVerified == false
         && request.resource.data.get('isAdmin', false) == false
-        && request.resource.data.get('coinsBalance', 0) == 0
-        && request.resource.data.get('rating', 0) == 0
-        && request.resource.data.get('ratingCount', 0) == 0
+        && request.resource.data.keys().hasOnly(
+             ['id', 'firstName', 'lastName', 'age', 'gender', 'role', 'isVerified', 'isAdmin',
+              'qualifications', 'specializations', 'pricePerSession', 'bio', 'customPrices',
+              'profileImageUri'])
+        && bezPolPrywatnych()
+        && !request.resource.data.keys().hasAny(['ratingSum', 'ratingCount'])
         && request.resource.data.role in ['PATIENT', 'PSYCHOLOGIST', 'PSYCHOLOGY_STUDENT'];
 
-      allow update: if isAdmin();
+      allow update: if isAdmin()
+        && tozsamoscZIdentyfikatoraDokumentu()
+        && bezOcenyWUsers()
+        && bezPolPrywatnych();
 
-      // Właściciel: dane opisowe dowolnie, przywileje nigdy,
-      // saldo w dół dowolnie, w górę tylko do limitu doładowania,
-      // deklaracja przelewu tylko przy realnym ubytku salda.
       allow update: if isSignedIn()
         && request.auth.uid == uid
+        && tozsamoscZIdentyfikatoraDokumentu()
         && request.resource.data.get('isVerified', false) == resource.data.get('isVerified', false)
         && unchanged('role')
         && request.resource.data.get('isAdmin', false) == resource.data.get('isAdmin', false)
-        && request.resource.data.get('rating', 0) == resource.data.get('rating', 0)
-        && request.resource.data.get('ratingCount', 0) == resource.data.get('ratingCount', 0)
+        && bezOcenyWUsers()
+        && bezPolPrywatnych();
+
+      allow delete: if isSignedIn() && request.auth.uid == uid;
+    }
+
+    // Telefon, e-mail i saldo. Czyta wlasciciel i administrator (obsluga zgloszen weryfikacyjnych); administrator nie zapisuje.
+    //
+    // Saldo rosnie wylacznie przez doladowanie albo rozliczenie depozytu
+    // (escrows/{appointmentId}). KTO moze przestawic depozyt, pilnuje match /escrows -
+    // tutaj zostaje zgodnosc arytmetyczna: kwota wzrostu to dokladnie kwota depozytu,
+    // depozyt jest w tej partii przestawiany z HELD, a odbiorca jest wlasciwa strona.
+    //
+    // Deklaracja escrowSettlement MUSI lezec w TYM SAMYM dokumencie co saldo (match /escrows
+    // czyta ja z tej sciezki). Rozdzielenie salda i deklaracji na dwa dokumenty zrywa powiazanie
+    // dokument-dokument i wraca bicie monet: N depozytow porownujacych sie do jednej roznicy salda.
+    // Deklaracja jest czytana przez get(..., ''), wiec jej BRAK, NIEAKTUALNOSC lub USUNIECIE nie moze
+    // niczego psuc: nieaktualna wskazuje depozyt juz rozliczony i nie rozlicza niczego
+    // (wymagany HELD przed), a zapis bez zmiany salda musi przechodzic.
+    // KOSZT PRZYJETY (orakul salda): kontrahent depozytu HELD moze zgadywac dokladne saldo drugiej
+    // strony, probujac rozliczen o kolejnych kwotach (odmowa dla 0/50/100, zgoda dla prawdziwych
+    // 123), bo regula musi porownac kwote z saldem. To zawezenie, nie regresja: wczesniej saldo
+    // czytalo sie wprost. Bez serwera nie da sie tego domknac - zamkniecie wymaga rozliczenia
+    // po stronie serwera. Nie probowac "naprawiac" zmiekczaniem porownan (otwiera bicie monet).
+    // Para get + getAfter z wymagana ROZNICA (HELD przed, RELEASED/REFUNDED po) dowodzi,
+    // ze depozyt zmienia sie teraz; samo getAfter() na dokumencie nietknietym w partii
+    // zwraca stan biezacy.
+    match /users/{uid}/private/contact {
+      allow read: if isAdmin() || (isSignedIn() && request.auth.uid == uid);
+
+      // Doladowanie portfela. SWIADOME OGRANICZENIE: bez serwera nie da sie
+      // potwierdzic, ze platnosc wplynela. Limit ogranicza skale naduzycia.
+      function topUpWithinLimit() {
+        return request.resource.data.coinsBalance - resource.data.coinsBalance <= 1000;
+      }
+
+      function rozliczenieDepozytu() {
+        let id = request.resource.data.get('escrowSettlement', '');
+        let kwota = request.resource.data.coinsBalance - resource.data.coinsBalance;
+        let d = /databases/$(database)/documents/escrows/$(id);
+        return id is string
+          && id != ''
+          && kwota is int
+          && kwota > 0
+          && get(d).data.status == 'HELD'
+          && get(d).data.amount == kwota
+          && ((getAfter(d).data.status == 'RELEASED' && get(d).data.psychologistId == uid)
+              || (getAfter(d).data.status == 'REFUNDED' && get(d).data.patientId == uid));
+      }
+
+      allow create: if isSignedIn()
+        && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['phone', 'email', 'coinsBalance'])
+        && request.resource.data.coinsBalance == 0
+        && phoneMatchesVerifiedNumber();
+
+      // Wlasciciel: dane kontaktowe dowolnie (numer pod kontrola tokenu), saldo
+      // w dol dowolnie, w gore tylko do limitu doladowania albo przez rozliczenie depozytu.
+      allow update: if isSignedIn()
+        && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['phone', 'email', 'coinsBalance', 'escrowSettlement'])
+        && phoneUpdateAllowed()
         && (unchanged('coinsBalance')
             || (request.resource.data.coinsBalance is int
                 && request.resource.data.coinsBalance >= 0
                 && (request.resource.data.coinsBalance < resource.data.coinsBalance
-                    || topUpWithinLimit())))
-        && (request.resource.data.get('lastTransferTo', null) == null
-            || (unchanged('lastTransferTo') && unchanged('lastTransferAmount'))
-            || request.resource.data.coinsBalance < resource.data.coinsBalance);
+                    || topUpWithinLimit()
+                    || rozliczenieDepozytu())));
 
-      // Obca osoba może zwiększyć czyjeś saldo wyłącznie wtedy,
-      // gdy w tym samym zapisie jej własne spada o dokładnie tyle samo.
+      // Obca osoba moze zwiekszyc czyjes saldo wylacznie przy rozliczeniu depozytu
+      // przestawianym w tej samej partii (psycholog zwracajacy monety pacjentowi,
+      // pacjent wyplacajacy psychologowi oplate za pozne odwolanie).
       allow update: if isSignedIn()
         && request.auth.uid != uid
-        && onlyChanged(['coinsBalance'])
-        && receivesPaidTransfer();
-
-      // Recenzja podbija ocenę ocenianego. Wymaga, żeby w tym samym zatwierdzeniu
-      // powstała recenzja o deterministycznym identyfikatorze <oceniany>_<recenzent>,
-      // wystawiona przez zapisującego. Bez tego dowolny zalogowany mógłby zmieniać
-      // cudzą ocenę bez śladu.
-      //
-      // UWAGA: samo getAfter() nie dowodzi, że commit UTWORZYŁ recenzję — spełnia je
-      // także recenzja istniejąca od dawna, co pozwalało podbijać ocenę w nieskończoność
-      // przez kolejne edycje własnej recenzji. Parę !exists()+existsAfter() dobrano
-      // właśnie po to, by wymusić utworzenie w tym samym zatwierdzeniu.
-      allow update: if isSignedIn()
-        && request.auth.uid != uid
-        && onlyChanged(['rating', 'ratingCount'])
-        && request.resource.data.ratingCount == resource.data.ratingCount + 1
-        && request.resource.data.rating >= 1
-        && request.resource.data.rating <= 5
-        && !exists(/databases/$(database)/documents/reviews/$(uid + '_' + request.auth.uid))
-        && existsAfter(/databases/$(database)/documents/reviews/$(uid + '_' + request.auth.uid))
-        && getAfter(/databases/$(database)/documents/reviews/$(uid + '_' + request.auth.uid)).data.reviewerId == request.auth.uid;
+        && onlyChanged(['coinsBalance', 'escrowSettlement'])
+        && rozliczenieDepozytu();
 
       allow delete: if isSignedIn() && request.auth.uid == uid;
     }
@@ -135,57 +245,315 @@ service cloud.firestore {
     match /appointments/{id} {
       allow read: if isSignedIn();
 
+      // Tozsamosc wizyty to identyfikator dokumentu, nigdy pole "appointmentId".
+      // Wartosc odczytana z pola sterowala rezerwacja, odwolaniem, zakonczeniem,
+      // kasowaniem terminu i krokiem usuwania konta (DeletionStep.DeleteFreeSlot) —
+      // wszystkie celowaly w appointments/<pole>. Skutki zmierzone w zadaniu 11 na
+      // ogloszeniach (R1) powtorzylyby sie tu w gorszym miejscu: wolny termin nie do
+      // zarezerwowania i nie do skasowania oraz usuwanie konta przerwane w polowie.
+      // Warunek obowiazuje takze przy edycji, bo wszystkie zapisy wizyty (rezerwacja,
+      // odwolanie, zakonczenie) sa CZESCIOWE i pola nie nosza — bierze sie ono
+      // ze scalenia. Dla wizyty z aplikacji jest rowne identyfikatorowi dokumentu od
+      // pierwszego commitu z Firestore (saveAppointment robi copy przed set).
+      // Pole szczatkowe: klient bierze tozsamosc z identyfikatora dokumentu.
+      // get(..., id), a nie == wprost — inaczej wizyta zapisana spoza aplikacji
+      // bez tego pola bylaby NA ZAWSZE nie do zarezerwowania i nie do odwolania.
+      // Pelne uzasadnienie przy tej samej funkcji w match /posts. Uwaga: pole
+      // appointmentId w match /escrows zostaje wiazane WPROST, bo tamto regula
+      // czyta decyzyjnie (depozytPrzyRezerwacji ponizej).
+      function tozsamoscZIdentyfikatoraDokumentu() {
+        return request.resource.data.get('appointmentId', id) == id;
+      }
+
+      // Wizyta, dla ktorej powstal depozyt, nigdy nie wraca do FREE. Depozyt jest rozliczalny
+      // wylacznie przy wizycie COMPLETED (wyplata) albo CANCELLED (zwrot, wyplata po pozno
+      // odwolanej), wiec zwolnienie terminu zostawiloby monety w HELD na zawsze. Drugi powod:
+      // ponowna rezerwacja musialaby zalozyc depozyt pod tym samym identyfikatorem, a ten
+      // jest nieusuwalny. Wizyty sprzed depozytow (bez dokumentu escrows) zwalniac wolno.
+      function bezPowrotuDoFreeZDepozytem() {
+        return request.resource.data.status != 'FREE'
+          || !existsAfter(/databases/$(database)/documents/escrows/$(id));
+      }
+
+      // Platny termin (priceCoins > 0) mozna zajac tylko wtedy, gdy w TEJ SAMEJ partii powstaje
+      // jego depozyt: nieistniejacy przed partia, HELD, na tego pacjenta, tego psychologa i
+      // dokladnie za cene wizyty. Wymog jest WARUNKOWY: depozyt wymaga amount > 0, wiec termin
+      // darmowy nie ma czego zakladac i bezwarunkowe existsAfter zablokowaloby jego rezerwacje.
+      // Kwota i saldo sa pilnowane w match /escrows (create); tu tylko dowod, ze depozyt jest.
+      function depozytPrzyRezerwacji() {
+        let d = /databases/$(database)/documents/escrows/$(id);
+        return resource.data.get('priceCoins', 0) <= 0
+          || (!exists(d)
+              && existsAfter(d)
+              && getAfter(d).data.status == 'HELD'
+              && getAfter(d).data.appointmentId == id
+              && getAfter(d).data.patientId == request.auth.uid
+              && getAfter(d).data.psychologistId == resource.data.psychologistId
+              && getAfter(d).data.amount == resource.data.priceCoins);
+      }
+
+      // Kto odwolal wizyte. Pole jest niepodrabialne: powstaje wylacznie w partii, w ktorej
+      // status przechodzi na CANCELLED, i jest rowne uid piszacego; po odwolaniu jest
+      // niezmienne (CANCELLED -> CANCELLED go nie podmieni); kazdy status inny niz CANCELLED
+      // (FREE, COMPLETED) oznacza brak pola, wiec nieaktualna wartosc nigdy nie upowazni do zwrotu.
+      // Od niego zalezy zwrot pacjenta po odwolaniu przez psychologa i wyplata pacjenta
+      // (match /escrows): wyplacic psychologowi moze tylko ten, kto sam odwolal.
+      function odwolujacyZgodny() {
+        let nowy = request.resource.data.get('cancelledBy', null);
+        return request.resource.data.status == 'CANCELLED'
+          ? (resource.data.status == 'CANCELLED'
+              ? nowy == resource.data.get('cancelledBy', null)
+              : nowy == request.auth.uid)
+          : nowy == null;
+      }
+
+      // Zmiana statusu na FREE lub CANCELLED zalezy od TEGO, KTO zapisuje:
+      //  - pacjent moze odwolac tylko wizyte, ktora sie jeszcze nie zaczela. Bez tego wizyta
+      //    po terminie stala u niego w "Nadchodzacych" z dzialajacym przyciskiem odwolania,
+      //  - psycholog moze odwolac lub zwolnic takze po terminie. To sciezka odwolania wizyty,
+      //    ktora sie nie odbyla; zwrot monet z depozytu to osobna sprawa (match /escrows).
+      //    Dotyczy to tez wizyt bez startsAtMillis (sprzed etapu), ktore inaczej nie dalyby
+      //    sie odwolac przez nikogo.
+      // Wizyta COMPLETED nie wraca do FREE/CANCELLED dla zadnej ze stron.
+      // Warunek dotyczy WYLACZNIE zmiany statusu: zapis zostawiajacy status bez zmian
+      // (CANCELLED -> CANCELLED) przechodzi.
+      function zmianaStatusuNaWolnyLubOdwolanyDozwolona() {
+        return request.resource.data.status == resource.data.status
+          || request.resource.data.status == 'COMPLETED'
+          || (resource.data.status != 'COMPLETED'
+              && (request.auth.uid == resource.data.psychologistId
+                  || resource.data.get('startsAtMillis', 0) > request.time.toMillis()));
+      }
+
       // Termin wystawia wyłącznie psycholog, zawsze jako wolny.
       //
       // priceCoins >= 0 (Zadanie 1 Etapu 3, runda poprawek 3): cena ujemna
       // sprawiłaby, że rezerwacja PRZYBLIŻAŁABY pacjentowi monety zamiast je
-      // pobierać. Dziś to i tak blokują kwota > 0 w receivesPaidTransfer()
-      // i amount > 0 w bookingCounterpartyEntry() (users/wallet_transactions) —
-      // ale to ochrona PRZYPADKOWA, niezwiązana z ceną. Etap 5 ma przerobić
-      // receivesPaidTransfer() pod zwroty (przepływ monet w drugą stronę),
-      // więc liczenie na to, że tamten refaktor pamięta o tej niewidzialnej
-      // zależności, jest złym zakładem. >= 0, nie > 0 — wolno wystawić
-      // darmowy termin.
+      // pobierać. Dziś to i tak blokuje amount > 0 w depozycie (escrows) — ale to
+      // ochrona PRZYPADKOWA, niezwiązana z ceną, więc liczenie na nią jest złym
+      // zakładem. >= 0, nie > 0 — wolno wystawić darmowy termin.
+      //
+      // Cena zwiazana z profilem (decyzja kontrolera, Zadanie 4): int() obcina tak samo
+      // jak toInt() w aplikacji i jak cenaZgodnaZProfilem w posts. Termin promocyjny
+      // wymaga jawnego pola rabatu, nie dowolnej ceny.
+      //
+      // startsAtMillis (Zadanie 4 Etapu 5): jedyne zrodlo prawdy o terminie. date i time
+      // to lancuchy do wyswietlania — regula nie umie ich sparsowac, wiec okno 24 godzin
+      // w zwrotach moze liczyc wylacznie z tej liczby. Wymagamy is int (liczba
+      // zmiennoprzecinkowa lub tekst nie przejda porownania z czasem serwera tak samo)
+      // i przyszlosci wzgledem request.time.
       allow create: if isSignedIn()
         && request.resource.data.psychologistId == request.auth.uid
+        && tozsamoscZIdentyfikatoraDokumentu()
         && request.resource.data.status == 'FREE'
         && request.resource.data.patientId == null
+        && request.resource.data.get('cancelledBy', null) == null
         && request.resource.data.priceCoins >= 0
+        && request.resource.data.priceCoins == int(get(/databases/$(database)/documents/users/$(request.auth.uid)).data.pricePerSession)
+        && request.resource.data.startsAtMillis is int
+        && request.resource.data.startsAtMillis > request.time.toMillis()
         && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', '') in ['PSYCHOLOGIST', 'PSYCHOLOGY_STUDENT'];
 
       // Rezerwacja: tylko z wolnego terminu, tylko na siebie,
       // nigdy na własny termin, bez podmiany psychologa, daty ani godziny.
       allow update: if isSignedIn()
         && resource.data.status == 'FREE'
+        && tozsamoscZIdentyfikatoraDokumentu()
         && request.resource.data.status == 'BOOKED'
         && request.resource.data.patientId == request.auth.uid
         && request.resource.data.patientId != resource.data.psychologistId
         && request.resource.data.psychologistId == resource.data.psychologistId
         && request.resource.data.date == resource.data.date
         && request.resource.data.time == resource.data.time
-        && request.resource.data.get('priceCoins', 0) == resource.data.get('priceCoins', 0);
+        && request.resource.data.get('startsAtMillis', 0) == resource.data.get('startsAtMillis', 0)
+        && request.resource.data.get('priceCoins', 0) == resource.data.get('priceCoins', 0)
+        && request.resource.data.get('cancelledBy', null) == null
+        && depozytPrzyRezerwacji()
+        && resource.data.get('startsAtMillis', 0) > request.time.toMillis();
 
       // Odwołanie lub zakończenie — wyłącznie przez stronę umowy.
       // Powrót do FREE zeruje pacjenta, COMPLETED/CANCELLED zachowuje dokładnie tego, który był.
       allow update: if isSignedIn()
         && (request.auth.uid == resource.data.psychologistId
             || request.auth.uid == resource.data.patientId)
+        && tozsamoscZIdentyfikatoraDokumentu()
         && request.resource.data.status in ['FREE', 'CANCELLED', 'COMPLETED']
         && request.resource.data.psychologistId == resource.data.psychologistId
         && request.resource.data.date == resource.data.date
         && request.resource.data.time == resource.data.time
+        && request.resource.data.get('startsAtMillis', 0) == resource.data.get('startsAtMillis', 0)
         && request.resource.data.get('priceCoins', 0) == resource.data.get('priceCoins', 0)
         && (request.resource.data.status == 'FREE'
               ? request.resource.data.patientId == null
               : request.resource.data.patientId == resource.data.patientId)
         && (request.resource.data.status == 'COMPLETED'
-              ? resource.data.status == 'BOOKED'
-              : true);
+              ? (resource.data.status == 'BOOKED'
+                  && resource.data.get('startsAtMillis', 0) <= request.time.toMillis())
+              : true)
+        && zmianaStatusuNaWolnyLubOdwolanyDozwolona()
+        && odwolujacyZgodny()
+        && bezPowrotuDoFreeZDepozytem();
 
       // Skasować można tylko własny, niezajęty termin.
       allow delete: if isSignedIn()
         && request.auth.uid == resource.data.psychologistId
         && resource.data.status == 'FREE';
+    }
+
+    // Znacznik odbytej wizyty pary psycholog-pacjent. Reguly Firestore nie przeszukuja
+    // kolekcji, a appointments ma losowe identyfikatory — recenzja nie ma jak znalezc
+    // wizyty tej pary. Znacznik o przewidywalnym identyfikatorze <psycholog>_<pacjent>
+    // to jedyna droga bez serwera: recenzja sprawdza go przez exists().
+    //
+    // Znacznik wolno utworzyc dopiero, gdy wizyta sie zaczela (startsAtMillis <= request.time):
+    // bez tego psycholog oznaczylby jako odbyta sesje zaplanowana na za kilka dni, a pacjent
+    // od razu wystawilby opinie. Ta sama granica obejmuje zmiane statusu na COMPLETED w regule
+    // appointments — inaczej wczesne zakonczenie bez znacznika spalaloby jedyne przejscie
+    // BOOKED -> COMPLETED i prawdziwa wizyta nie mogla by juz wytworzyc dowodu.
+    //
+    // Powstaje w TYM SAMYM zatwierdzeniu, co zmiana statusu wizyty na COMPLETED:
+    // get() widzi stan przed, getAfter() po, wiec para dowodzi realnego przejscia
+    // BOOKED -> COMPLETED. Znacznik jest jeden na pare (create sie nie powtorzy,
+    // update/delete zablokowane) — klient przy kolejnej wizycie tej pary nie moze
+    // wlaczac go do partii, bo odmowa wycofalaby tez zmiane statusu.
+    //
+    // ŚWIADOME OGRANICZENIE: znacznik mogą utworzyć obie strony wizyty (appointments
+    // pozwala obu oznaczyć ją jako odbytą). Koszt fałszywki to cena rezerwacji.
+    match /completions/{id} {
+      allow read: if isSignedIn();
+
+      function wizyta() {
+        return /databases/$(database)/documents/appointments/$(request.resource.data.appointmentId);
+      }
+
+      allow create: if isSignedIn()
+        && id == request.resource.data.psychologistId + '_' + request.resource.data.patientId
+        && get(wizyta()).data.status == 'BOOKED'
+        && getAfter(wizyta()).data.status == 'COMPLETED'
+        && get(wizyta()).data.get('startsAtMillis', 0) <= request.time.toMillis()
+        && get(wizyta()).data.psychologistId == request.resource.data.psychologistId
+        && get(wizyta()).data.patientId == request.resource.data.patientId
+        && request.resource.data.keys().hasOnly(
+             ['psychologistId', 'patientId', 'appointmentId', 'completedAt']);
+
+      allow update, delete: if false;
+    }
+
+    // Monety wizyty nie idą wprost do psychologa, tylko do depozytu. Dzięki temu
+    // zwrot ma własną ścieżkę pacjenta: wcześniej odwołanie ponad 24 h przed
+    // terminem zostawiało refundPending == true i pacjent czekał, aż psycholog
+    // to rozliczy — a psycholog mógł w tym czasie wydać monety i zwrot nie
+    // przechodził. Depozyt jest nieusuwalny i rozliczalny dokładnie raz.
+    //
+    // Niezmiennik: suma sald + suma depozytów HELD jest stała przy każdej operacji
+    // poza doładowaniem. Każde przestawienie depozytu wymaga w TEJ SAMEJ partii
+    // dokładnego wzrostu salda właściwej strony (getAfter - get), a każdy wzrost salda
+    // spoza doładowania wymaga przestawienia depozytu (match /users/{uid}/private/contact, rozliczenieDepozytu).
+    // Warunków salda NIE wolno zmiękczać do nierówności: nierówność otwiera bicie monet.
+    match /escrows/{appointmentId} {
+      allow read: if isSignedIn();
+
+      function wizytaPrzed() {
+        return get(/databases/$(database)/documents/appointments/$(appointmentId)).data;
+      }
+
+      function wizytaPo() {
+        return getAfter(/databases/$(database)/documents/appointments/$(appointmentId)).data;
+      }
+
+      function saldoPo(uid) {
+        return getAfter(/databases/$(database)/documents/users/$(uid)/private/contact).data.coinsBalance;
+      }
+
+      function saldoPrzed(uid) {
+        return get(/databases/$(database)/documents/users/$(uid)/private/contact).data.coinsBalance;
+      }
+
+      // Deklaracja strony, której saldo się zmienia, MUSI wskazywać TEN depozyt. Bez niej
+      // różnica salda jest własnością dokumentu użytkownika, a nie depozytu: w jednej partii
+      // można założyć N depozytów, z których każdy porównuje się do TEJ SAMEJ różnicy (bicie
+      // monet: spadek o cenę raz, N depozytów), albo rozliczyć N depozytów jednym wzrostem
+      // salda (niszczenie monet cudzą ręką). Deklaracja jest jedna na dokument, więc dwa
+      // depozyty nie spinają się z jednym ruchem salda. Mutacje pojedynczych warunków tego
+      // nie widzą - brakuje powiązania dokument-dokument, więc pilnują tego testy partii
+      // wielodokumentowych (describe 'partie z wieloma depozytami').
+      function deklaracja(uid) {
+        return getAfter(/databases/$(database)/documents/users/$(uid)/private/contact).data.get('escrowSettlement', '');
+      }
+
+      // Para get + getAfter z wymaganą RÓŻNICĄ dowodzi, że rezerwacja dzieje się
+      // teraz. Samo getAfter().status == 'BOOKED' spełnia każdy termin już zajęty.
+      allow create: if isSignedIn()
+        && request.resource.data.keys().hasOnly(
+             ['appointmentId', 'patientId', 'psychologistId', 'amount', 'status'])
+        && request.resource.data.appointmentId == appointmentId
+        && request.resource.data.patientId == request.auth.uid
+        && request.resource.data.status == 'HELD'
+        && request.resource.data.amount is int
+        && request.resource.data.amount > 0
+        && wizytaPrzed().status == 'FREE'
+        && wizytaPo().status == 'BOOKED'
+        && wizytaPo().patientId == request.auth.uid
+        && request.resource.data.psychologistId == wizytaPrzed().psychologistId
+        && request.resource.data.amount == wizytaPrzed().priceCoins
+        && saldoPo(request.auth.uid) == saldoPrzed(request.auth.uid) - request.resource.data.amount
+        && deklaracja(request.auth.uid) == appointmentId;
+
+      // Wypłata psychologowi: po odbytej wizycie (jego decyzja) albo po odwołaniu
+      // przez PACJENTA później niż 24 h przed terminem (wtedy rozlicza to pacjent, by nic
+      // nie wisiało). Odwołanie przez psychologa nigdy nie upoważnia pacjenta do wypłaty:
+      // oddałby własne pieniądze za wizytę, która nie odbyła się nie z jego winy.
+      allow update: if isSignedIn()
+        && onlyChanged(['status'])
+        && resource.data.status == 'HELD'
+        && request.resource.data.status == 'RELEASED'
+        && saldoPo(resource.data.psychologistId)
+           == saldoPrzed(resource.data.psychologistId) + resource.data.amount
+        && deklaracja(resource.data.psychologistId) == appointmentId
+        && ((request.auth.uid == resource.data.psychologistId
+             && wizytaPo().status == 'COMPLETED')
+            || (request.auth.uid == resource.data.patientId
+                && wizytaPo().status == 'CANCELLED'
+                && wizytaPo().get('cancelledBy', null) == resource.data.patientId
+                && wizytaPrzed().startsAtMillis - request.time.toMillis() <= 86400000));
+
+      // Zwrot pacjentowi: sam, gdy odwołał ponad 24 h przed terminem albo gdy wizytę
+      // odwołał psycholog (niezależnie od okna); psycholog zawsze.
+      allow update: if isSignedIn()
+        && onlyChanged(['status'])
+        && resource.data.status == 'HELD'
+        && request.resource.data.status == 'REFUNDED'
+        && wizytaPo().status == 'CANCELLED'
+        && saldoPo(resource.data.patientId)
+           == saldoPrzed(resource.data.patientId) + resource.data.amount
+        && deklaracja(resource.data.patientId) == appointmentId
+        && ((request.auth.uid == resource.data.patientId
+             && (wizytaPo().get('cancelledBy', null) == resource.data.psychologistId
+                 || wizytaPrzed().startsAtMillis - request.time.toMillis() > 86400000))
+            || request.auth.uid == resource.data.psychologistId);
+
+      // Psycholog, ktory sie nie pojawil, nie moze trzymac cudzych monet bezterminowo:
+      // pacjent nie moze odwolac wizyty po terminie, wiec bez tej sciezki nie odzyskalby
+      // ich nigdy, a psycholog zapisalby COMPLETED w dowolnym pozniejszym momencie.
+      // Po 14 dniach od terminu wizyta, ktora nadal jest BOOKED, daje pacjentowi wlasny
+      // zwrot. Przed uplywem 14 dni pacjent nie ma zadnej sciezki zwrotu dla wizyty BOOKED.
+      // Swiadomie NIE blokujemy psychologowi COMPLETED po oknie (kto pierwszy, ten rozliczy):
+      // cena tej decyzji to mozliwosc zwrotu pacjentowi za wizyte, ktora sie odbyla, ale
+      // zostala oznaczona z opoznieniem wiekszym niz dwa tygodnie. Depozyt rozlicza sie raz
+      // (resource.status == HELD), wiec COMPLETED zapisane potem niczego juz nie wyplaci.
+      allow update: if isSignedIn()
+        && onlyChanged(['status'])
+        && resource.data.status == 'HELD'
+        && request.resource.data.status == 'REFUNDED'
+        && request.auth.uid == resource.data.patientId
+        && wizytaPrzed().status == 'BOOKED'
+        && wizytaPo().status == 'BOOKED'
+        && request.time.toMillis() - wizytaPrzed().startsAtMillis > 1209600000
+        && saldoPo(resource.data.patientId)
+           == saldoPrzed(resource.data.patientId) + resource.data.amount
+        && deklaracja(resource.data.patientId) == appointmentId;
+
+      allow delete: if false;
     }
 
     match /wallet_transactions/{id} {
@@ -195,9 +563,10 @@ service cloud.firestore {
         && request.resource.data.transactionId == id
         && request.resource.data.amount is int
         && request.resource.data.amount != 0
-        && request.resource.data.type in ['TOPUP', 'BOOKING_PAYMENT', 'BOOKING_EARNING', 'REFUND']
+        && request.resource.data.type in ['TOPUP', 'BOOKING_PAYMENT', 'BOOKING_EARNING', 'REFUND', 'TRANSFER_OUT', 'WITHDRAWAL']
         && (request.resource.data.userId == request.auth.uid
-            || bookingCounterpartyEntry());
+            || wpisWyplatyNaKoncuPsychologa()
+            || wpisZwrotuNaKoncuPacjenta());
 
       // Księga jest niezmienna.
       allow update, delete: if false;
@@ -209,13 +578,28 @@ service cloud.firestore {
       // a lista uczestników musi zgadzać się z parą psycholog-pacjent w dokumencie.
       // Bez tego dowolny zalogowany tworzy czat z DWIEMA obcymi osobami i sobą,
       // a getChatByParticipants() podstawia go ofierze zamiast prawdziwej rozmowy.
+      //
+      // Pole "chatId" pisze klient, wiec bez warunku ponizej dwa dokumenty moglo
+      // twierdzic, ze sa tym samym czatem: lista rozmow dostawala powtorzony klucz,
+      // a updateChat() i getChatByParticipants() podstawialy ekranowi rozmowy
+      // dokument o identyfikatorze wzietym z TRESCI dokumentu. Ta sama klasa bledu,
+      // ktora na ogloszeniach dala petle awarii (zadanie 11, R1). Warunek obowiazuje
+      // takze przy edycji, bo request.resource.data to dokument PO scaleniu — inaczej
+      // czat zasiany z pominieciem aplikacji zostaje i dalej daje sie aktualizowac.
+      // get(..., chatId), nie == wprost: pole jest szczatkowe (klient bierze
+      // chatId z identyfikatora dokumentu), wiec jego brak nie klamie, a wariant
+      // scisly zablokowalby na zawsze edycje czatu zasianego bez tego pola.
+      // Pelne uzasadnienie przy funkcji tozsamoscZIdentyfikatoraDokumentu
+      // w match /posts.
       allow create: if isSignedIn()
+        && request.resource.data.get('chatId', chatId) == chatId
         && request.resource.data.participants.size() == 2
         && request.resource.data.psychologistId != request.resource.data.patientId
         && request.resource.data.psychologistId in request.resource.data.participants
         && request.resource.data.patientId in request.resource.data.participants
         && request.auth.uid in request.resource.data.participants;
       allow update: if isSignedIn()
+        && request.resource.data.get('chatId', chatId) == chatId
         && request.auth.uid in resource.data.participants
         && onlyChanged(['lastMessage', 'lastMessageTime']);
       allow delete: if false;
@@ -223,48 +607,147 @@ service cloud.firestore {
 
     match /messages/{id} {
       allow read: if jestUczestnikiem(resource.data.chatId);
-      allow create: if request.resource.data.senderId == request.auth.uid
+      // "messageId" jest kluczem listy na ekranie rozmowy, a pisze je klient: bez
+      // warunku ponizej dwie wiadomosci moglo twierdzic, ze sa ta sama wiadomoscia.
+      // Czlonu na update nie ma, bo edycja i kasowanie wiadomosci sa zabronione w
+      // calosci (ponizej) — to warunek mocniejszy, nie luka.
+      // get(..., id), nie == wprost — ten sam jeden idiom, co w pozostalych szesciu
+      // kolekcjach; pelne uzasadnienie w match /posts. Tu nie ma trwalego trybu
+      // awarii (brak edycji), ale brak pola i tak nie klamie, a dwa idiomy tej
+      // samej reguly rozjechalyby sie przy nastepnej zmianie.
+      allow create: if request.resource.data.get('messageId', id) == id
+        && request.resource.data.senderId == request.auth.uid
         && jestUczestnikiem(request.resource.data.chatId);
       allow update, delete: if false;
     }
 
     match /notes/{id} {
-      // Notatki zapisane przed dodaniem authorId nie mają tego pola — pierwszy
-      // człon warunku odczytu je przepuszcza, żeby nie osierocić starych danych.
-      // Nowe notatki widzi wyłącznie ich autor oraz psycholog prowadzący czat.
-      allow read: if jestUczestnikiem(resource.data.chatId)
-        && (resource.data.get('authorId', '') == ''
-            || resource.data.authorId == request.auth.uid
-            || request.auth.uid == get(/databases/$(database)/documents/chats/$(resource.data.chatId)).data.psychologistId);
+      // Notatki rusza WYLACZNIE psycholog prowadzacy czat - odczyt, zapis, kasowanie.
+      // Wyjatek dla autora zniknal razem z mozliwoscia tworzenia notatki przez pacjenta:
+      // skoro create jest tylko dla psychologa, autorem nowej notatki jest zawsze on,
+      // a wyjatek chronilby juz tylko notatki pacjenta sprzed tej zmiany. Rola brana
+      // z dokumentu czatu, nigdy z deklaracji klienta.
+      // Historycznie: czlon `authorId == ''` przepuszczal kazdego uczestnika, wiec pacjent
+      // odczytywal pojedynczym get() to, czego nie wolno mu bylo ani zmienic, ani skasowac.
+      // Notatka BEZ authorId
+      // (sprzed migracji) jest notatka kliniczna psychologa, wiec czyta ja wylacznie psycholog
+      // prowadzacy czat - dokladnie tak jak ja edytuje i kasuje. Pierwotny czlon
+      // `authorId == ''` przepuszczal kazdego uczestnika, wiec pacjent odczytywal pojedynczym
+      // get() po identyfikatorze to, czego nie wolno mu bylo ani zmienic, ani skasowac.
+      // Notatke z authorId czyta jej autor oraz psycholog prowadzacy. Listowanie nadal
+      // odpada, bo warunek zalezy od resource.data kazdego dokumentu.
+      allow read: if request.auth.uid == get(/databases/$(database)/documents/chats/$(resource.data.chatId)).data.psychologistId;
 
-      allow create: if jestUczestnikiem(request.resource.data.chatId)
+      // Notatke tworzy WYLACZNIE psycholog prowadzacy czat: notatki sa narzedziem psychologa,
+      // a pacjent-autor czytalby wlasna notatke (odczyt wg authorId), czyli mialby funkcje,
+      // ktorej aplikacja mu nie daje. Rola jest brana z dokumentu czatu, nie z deklaracji klienta.
+      allow create: if request.auth.uid == get(/databases/$(database)/documents/chats/$(request.resource.data.chatId)).data.psychologistId
+        && request.resource.data.get('noteId', id) == id
         && request.resource.data.authorId == request.auth.uid;
 
       // Wariant zapasowy tylko dla psychologa prowadzącego czat — jest domniemanym
       // autorem notatek klinicznych sprzed migracji. Pacjent nadal ich nie rusza.
       // authorId jest zamrożony przy update: resource.data.X mówi o stanie PRZED
       // zapisem i nie broni przed zmianą samego X, więc trzeba to sprawdzić osobno.
-      allow update: if (resource.data.get('authorId', '') == request.auth.uid
-            || (resource.data.get('authorId', '') == ''
-                && request.auth.uid == get(/databases/$(database)/documents/chats/$(resource.data.chatId)).data.psychologistId))
+      // "noteId" pisal klient i nic go nie wiazalo z identyfikatorem dokumentu, a
+      // deleteNote() celuje w notes/<pole> — tak samo krok usuwania konta
+      // (DeletionStep.DeleteNote). Jedna rozjechana notatka przerywala usuwanie konta
+      // w polowie, czyli dokladnie objaw z zadania 11 (R1). Warunek obowiazuje takze
+      // przy edycji, bo request.resource.data to dokument PO scaleniu. get(..., id),
+      // nie == wprost: pole jest szczatkowe, jego brak nie klamie, a wariant scisly
+      // zablokowalby na zawsze edycje notatki zasianej bez niego. Uwaga: chatId
+      // notatki to pole-ODNOSNIK (regula buduje z niego sciezke do czatu) i ono
+      // zostaje wiazane wprost. Pelne uzasadnienie w match /posts.
+      allow update: if request.auth.uid == get(/databases/$(database)/documents/chats/$(resource.data.chatId)).data.psychologistId
+        && request.resource.data.get('noteId', id) == id
         && request.resource.data.chatId == resource.data.chatId
         && request.resource.data.get('authorId', '') == resource.data.get('authorId', '');
 
-      allow delete: if resource.data.get('authorId', '') == request.auth.uid
-        || (resource.data.get('authorId', '') == ''
-            && request.auth.uid == get(/databases/$(database)/documents/chats/$(resource.data.chatId)).data.psychologistId);
+      allow delete: if request.auth.uid == get(/databases/$(database)/documents/chats/$(resource.data.chatId)).data.psychologistId;
+    }
+
+    // Agregat oceny leży POZA dokumentem ocenianego i jest nieusuwalny. Gdy leżał
+    // w users/{uid}, właściciel zerował sobie ocenę usuwając i odtwarzając profil
+    // (allow create wymaga ratingSum == 0). Reguły nie potrafią policzyć recenzji
+    // w kolekcji, więc nie da się tego wykryć po fakcie — agregat musiał się
+    // wyprowadzić. NIE przywracać ratingSum/ratingCount do users.
+    match /ratings/{uid} {
+      allow read: if isSignedIn();
+
+      function recenzja() {
+        return /databases/$(database)/documents/reviews/$(uid + '_' + request.auth.uid);
+      }
+
+      // Para !exists() + existsAfter() wymusza, by recenzja POWSTAŁA w tym
+      // zatwierdzeniu. Samo getAfter() spełnia też recenzja istniejąca od dawna,
+      // co pozwalało podbijać ocenę w nieskończoność kolejnymi edycjami własnej.
+      function recenzjaZTegoZatwierdzenia() {
+        let r = recenzja();
+        let po = getAfter(r).data;
+        return !exists(r)
+          && existsAfter(r)
+          && po.reviewerId == request.auth.uid
+          && po.rating is int
+          && po.rating >= 1
+          && po.rating <= 5;
+      }
+
+      function ocena() {
+        return getAfter(recenzja()).data.rating;
+      }
+
+      allow create: if isSignedIn()
+        && request.auth.uid != uid
+        && request.resource.data.keys().hasOnly(['sum', 'count'])
+        && request.resource.data.count is int
+        && request.resource.data.count == 1
+        && request.resource.data.sum is int
+        && request.resource.data.sum == ocena()
+        && recenzjaZTegoZatwierdzenia();
+
+      allow update: if isSignedIn()
+        && request.auth.uid != uid
+        && onlyChanged(['sum', 'count'])
+        && request.resource.data.count is int
+        && request.resource.data.sum is int
+        && request.resource.data.count == resource.data.count + 1
+        && request.resource.data.sum == resource.data.sum + ocena()
+        && recenzjaZTegoZatwierdzenia();
+
+      // Usunięcie przywróciłoby !exists() w regule recenzji i pozwoliło
+      // policzyć tę samą recenzję po raz drugi.
+      allow delete: if false;
     }
 
     match /reviews/{id} {
       allow read: if isSignedIn();
 
+      // Identyfikator dokumentu jest tu juz wiazany z para psycholog_recenzent (nizej),
+      // ale samo pole "reviewId" bylo niczym nieograniczone: recenzja mogla twierdzic,
+      // ze jest inna recenzja. Dzis cel zapisu liczy sie z pary, a nie z odczytanego
+      // pola, wiec to obrona w glab — zamkniete, zanim ktorykolwiek przyszly konsument
+      // reviewId wezmie je za prawde. Warunek obowiazuje takze przy edycji tresci,
+      // bo request.resource.data to dokument PO scaleniu. get(..., id), nie == wprost:
+      // pole jest szczatkowe, jego brak nie klamie, a wariant scisly zablokowalby na
+      // zawsze poprawienie tresci recenzji zasianej bez niego (pelne uzasadnienie
+      // przy funkcji tozsamoscZIdentyfikatoraDokumentu w match /posts).
       allow create: if isSignedIn()
         && request.resource.data.reviewerId == request.auth.uid
-        && id == request.resource.data.psychologistId + '_' + request.auth.uid;
+        && request.resource.data.get('reviewId', id) == id
+        && request.resource.data.rating is int
+        && request.resource.data.rating >= 1
+        && request.resource.data.rating <= 5
+        && id == request.resource.data.psychologistId + '_' + request.auth.uid
+        && exists(/databases/$(database)/documents/completions/$(request.resource.data.psychologistId + '_' + request.auth.uid));
 
-      // Treść wolno poprawić, ale nie wolno przepisać recenzji na kogo innego
-      // ani przenieść jej pod innego psychologa.
+      // Treść wolno poprawić, ale nie wolno przepisać recenzji na kogo innego,
+      // przenieść jej pod innego psychologa ani zmienić OCENY. Ocena jest już
+      // zaliczona w ratings/{psychologistId}, a reguły nie potrafią tego agregatu
+      // przeliczyć — zmiana oceny na 1 po zaliczeniu 5 rozjechałaby trwale średnią
+      // i widoczną listę recenzji.
       allow update: if isSignedIn()
+        && request.resource.data.get('reviewId', id) == id
+        && request.resource.data.rating == resource.data.rating
         && resource.data.reviewerId == request.auth.uid
         && request.resource.data.reviewerId == resource.data.reviewerId
         && request.resource.data.psychologistId == resource.data.psychologistId;
@@ -359,7 +842,20 @@ service cloud.firestore {
             && request.resource.data.get('reviewNote', '') == ''
             && tylkoDozwolonePola());
 
-      allow delete: if isAdmin();
+      // Zgloszenie z odrzuceniem to slad rozpatrzenia: gdyby wlasciciel mogl je skasowac
+      // na zyczenie, ukrylby odrzucenie i zlozyl wniosek od nowa, jakby nic sie nie stalo.
+      // Dlatego aktywny uzytkownik (z profilem) nigdy go nie kasuje, tylko administrator.
+      //
+      // Wyjatek: usuniecie konta. Zgloszenie zawiera skan dokumentu tozsamosci (docImageBase64),
+      // ktory nie moze zostac w bazie bez wlasciciela. Wlasciciel kasuje je WYLACZNIE wtedy,
+      // gdy jego dokument uzytkownika juz nie istnieje - ta sama konstrukcja co przy
+      // ogloszeniach. Slad rozpatrzenia jest chroniony, dopoki konto istnieje; po jego
+      // usunieciu nie ma kogo chronic przed ukrywaniem odrzucenia. Stad kolejnosc w aplikacji:
+      // dokument uzytkownika, potem zgloszenie, na koncu konto w Auth.
+      allow delete: if isAdmin()
+        || (isSignedIn()
+            && request.auth.uid == uid
+            && !exists(/databases/$(database)/documents/users/$(request.auth.uid)));
     }
 
     match /posts/{id} {
@@ -439,8 +935,57 @@ service cloud.firestore {
             && request.resource.data.tags.size() <= 5;
       }
 
+      // Pole "id" pisze klient, wiec bez tego warunku dwa dokumenty moglo
+      // twierdzic, ze sa tym samym ogloszeniem. Zadanie 11 zmierzylo skutek na
+      // urzadzeniu (R1): odczyt bral tozsamosc z pola, wiec uzgadnianie wlasnych
+      // ogloszen zapisywalo do posts/<pole> — dokumentu, ktory nie istnieje.
+      // Reguly odmawialy, a odrzucona mutacja zostawala w LOKALNEJ kolejce
+      // urzadzenia i byla ponawiana przy kazdym starcie: FATAL EXCEPTION, trzy
+      // kolejne starty DEAD, konta nie dawalo sie odratowac inaczej jak
+      // wyczyszczeniem danych aplikacji.
+      //
+      // ZASIEG TEGO WARUNKU: obrona w glab, nie naprawa tej awarii. Zamyka droge
+      // UWIERZYTELNIONEGO klienta, a ta na ogloszeniach i tak pozwala zatruc tylko
+      // WLASNE konto, bo create wymaga authorId == request.auth.uid. Droga faktycznie
+      // uzyta w zadaniu 11 — REST emulatora z tokenem "owner", w produkcji Admin SDK
+      // albo konsola — reguly POMIJA i zostaje otwarta. Zmierzona awaria jest zamknieta
+      // mapowaniem tozsamosci przy odczycie i oslona korutyny w PostViewModel.init.
+      // Odwrotna strona tego mapowania: uzgadnianie wlasnych ogloszen NAPRAWIA zatrute
+      // pole (.set() nadpisuje je identyfikatorem dokumentu), a czlon przy update taki
+      // zapis przepuszcza — wiec warunek nie zamyka drogi wyjscia z zatrutego stanu.
+      //
+      // Warunek MUSI obowiazywac takze przy edycji: request.resource.data to
+      // dokument PO scaleniu, wiec pole "id" jest w nim nawet wtedy, gdy edycja
+      // go nie dotyczy. Bez czlonu na update dokument zasiany z pominieciem
+      // aplikacji zostaje w kolekcji na stale i dalej daje sie edytowac.
+      //
+      // DLACZEGO get(..., id) A NIE WPROST ==, I DLACZEGO TAK JEST W SIEDMIU
+      // MIEJSCACH (decyzja kontrolera, Zadanie 12 runda 2): po przeniesieniu
+      // tozsamosci na identyfikator dokumentu klient NIE CZYTA juz tego pola —
+      // bierze tozsamosc z document.id i tam tez celuje zapisem. Pole jest
+      // szczatkowe i sluzy wylacznie tej regule. Stad asymetria: pole, ktore
+      // KLAMIE, jest zagrozeniem (dwa dokumenty twierdza, ze sa tym samym
+      // obiektem), a pole, ktorego NIE MA, nie klamie i nie szkodzi nikomu —
+      // odczyt i tak wezmie identyfikator dokumentu. Wariant scisly (== wprost)
+      // dokladal za to trwaly tryb awarii: dokument zapisany kiedykolwiek spoza
+      // aplikacji bez tego pola stawal sie NIEEDYTOWALNY NA ZAWSZE (dla users:
+      // profil, ktorego administrator nie zweryfikuje), nie kupujac ani grama
+      // bezpieczenstwa. NIE przywracac wariantu scislego.
+      //
+      // WYJATEK, ktorego ta zasada NIE obejmuje: match /escrows wiaze swoje
+      // appointmentId wprost (==), bo regula /appointments czyta to pole
+      // DECYZYJNIE (getAfter(d).data.appointmentId == id w depozytPrzyRezerwacji).
+      // Tam brak pola nie jest nieszkodliwy — autoryzacja ocenialaby sie na
+      // niczym. To samo dotyczy pol-odnosnikow (wallet_transactions.appointmentId,
+      // completions.appointmentId, notes.chatId, messages.chatId), z ktorych
+      // reguly buduja sciezke do innego dokumentu.
+      function tozsamoscZIdentyfikatoraDokumentu() {
+        return request.resource.data.get('id', id) == id;
+      }
+
       allow create: if isSignedIn()
         && request.resource.data.authorId == request.auth.uid
+        && tozsamoscZIdentyfikatoraDokumentu()
         && request.resource.data.isActive == true
         && request.resource.data.title is string
         && request.resource.data.title.size() > 0
@@ -453,6 +998,7 @@ service cloud.firestore {
 
       allow update: if isSignedIn()
         && resource.data.authorId == request.auth.uid
+        && tozsamoscZIdentyfikatoraDokumentu()
         && request.resource.data.authorId == resource.data.authorId
         && request.resource.data.createdAt == resource.data.createdAt
         && request.resource.data.type == resource.data.type
@@ -464,7 +1010,15 @@ service cloud.firestore {
       // Bez serwera nie da sie odroznic "usuniete bo nieaktualne" od "usuniete
       // bo ukrywa slad naduzycia" — dezaktywacja (isActive = false) zostawia
       // dokument do wgladu, delete() bezpowrotnie go kasuje.
-      allow delete: if false;
+      //
+      // Wyjatek: usuniecie konta. Autor moze skasowac swoje ogloszenie WYLACZNIE wtedy,
+      // gdy jego dokument uzytkownika juz nie istnieje. Aktywny uzytkownik (z profilem)
+      // nadal moze tylko dezaktywowac, wiec slad nadużycia nie znika na zyczenie.
+      // Stad kolejnosc w aplikacji: najpierw dokument uzytkownika, potem ogloszenia,
+      // na koncu konto w Auth (po jego usunieciu nie ma juz kto kasowac).
+      allow delete: if isSignedIn()
+        && resource.data.authorId == request.auth.uid
+        && !exists(/databases/$(database)/documents/users/$(request.auth.uid));
     }
 
     // Wszystko, co nie zostało wymienione powyżej, jest zablokowane.

@@ -2,8 +2,11 @@ package com.example.stellare.wallet
 
 import com.example.stellare.data.model.WalletTransactionType
 import com.example.stellare.data.repository.WalletRepository
+import com.example.stellare.fakes.FakeUserDataSource
 import com.example.stellare.fakes.FakeWalletDataSource
 import com.example.stellare.fakes.fakeUserRepository
+import com.example.stellare.ui.wallet.CoinPacks
+import com.example.stellare.ui.wallet.TopUpLimits
 import com.example.stellare.ui.wallet.WalletViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -16,6 +19,7 @@ import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Before
 import org.junit.Test
 
@@ -28,8 +32,9 @@ class WalletViewModelTest {
     @After fun tearDown() = Dispatchers.resetMain()
 
     private fun walletViewModelZSaldem(saldo: Int): WalletViewModel {
-        val userRepository = fakeUserRepository("k1", saldo)
-        val walletRepository = WalletRepository(FakeWalletDataSource())
+        val users = FakeUserDataSource()
+        val userRepository = fakeUserRepository("k1", saldo, users)
+        val walletRepository = WalletRepository(FakeWalletDataSource(users))
         return WalletViewModel(walletRepository, userRepository)
     }
 
@@ -75,33 +80,35 @@ class WalletViewModelTest {
     }
 
     @Test
-    fun `spend przy niewystarczajacym saldzie zwraca false i nic nie zapisuje`() = runTest(dispatcher) {
-        val vm = walletViewModelZSaldem(100)
-        backgroundScope.launch { vm.balance.collect {} }
-        backgroundScope.launch { vm.transactions.collect {} }
-        advanceUntilIdle()
+    fun `kazdy pakiet oferowany w aplikacji jest przyjmowany przez doladowanie`() {
+        CoinPacks.forEach { pack ->
+            runTest(dispatcher) {
+                val vm = walletViewModelZSaldem(100)
+                backgroundScope.launch { vm.balance.collect {} }
+                advanceUntilIdle()
 
-        val result = vm.spend(500, "Przelew do: odbiorca")
-        advanceUntilIdle()
+                vm.topUp(pack.coins)
+                advanceUntilIdle()
 
-        assertEquals(false, result)
-        assertEquals(100, vm.balance.value)
-        assertEquals(0, vm.transactions.value.size)
+                assertNull(
+                    "aplikacja oferuje pakiet \"${pack.name}\" (${pack.coins} monet), a doładowanie go odrzuca: ${vm.topUpError.value}",
+                    vm.topUpError.value
+                )
+                assertEquals(100 + pack.coins, vm.balance.value)
+            }
+        }
     }
 
     @Test
-    fun `spend przy wystarczajacym saldzie zwraca true, obniza saldo i zapisuje operacje ujemna`() = runTest(dispatcher) {
-        val vm = walletViewModelZSaldem(200)
+    fun `doladowanie dokladnie w granicy limitu jest przyjmowane`() = runTest(dispatcher) {
+        val vm = walletViewModelZSaldem(100)
         backgroundScope.launch { vm.balance.collect {} }
-        backgroundScope.launch { vm.transactions.collect {} }
         advanceUntilIdle()
 
-        val result = vm.spend(80, "Przelew do: odbiorca")
+        vm.topUp(TopUpLimits.MAX_COINS)
         advanceUntilIdle()
 
-        assertEquals(true, result)
-        assertEquals(120, vm.balance.value)
-        assertEquals(1, vm.transactions.value.size)
-        assertEquals(-80, vm.transactions.value.first().amount)
+        assertNull(vm.topUpError.value)
+        assertEquals(100 + TopUpLimits.MAX_COINS, vm.balance.value)
     }
 }

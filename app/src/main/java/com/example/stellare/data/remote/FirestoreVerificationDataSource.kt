@@ -11,7 +11,9 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.tasks.await
 
-class FirestoreVerificationDataSource : VerificationDataSource {
+class FirestoreVerificationDataSource(
+    private val clock: () -> Long = System::currentTimeMillis
+) : VerificationDataSource {
     private val db = Firebase.firestore
     private val collection = db.collection("verificationRequests")
     private val usersCollection = db.collection("users")
@@ -25,6 +27,7 @@ class FirestoreVerificationDataSource : VerificationDataSource {
             .addSnapshotListener { snap, error ->
                 if (error != null) {
                     android.util.Log.e("FirestoreVerificationDS", "Error fetching request for $uid: ${error.message}")
+                    close(error)
                     return@addSnapshotListener
                 }
                 trySend(snap?.toObject(VerificationRequestModel::class.java)?.copy(uid = uid))
@@ -39,6 +42,7 @@ class FirestoreVerificationDataSource : VerificationDataSource {
             .addSnapshotListener { snap, error ->
                 if (error != null) {
                     android.util.Log.e("FirestoreVerificationDS", "Error fetching pending requests: ${error.message}")
+                    close(error)
                     return@addSnapshotListener
                 }
                 val requests = snap?.documents?.mapNotNull { document ->
@@ -47,6 +51,11 @@ class FirestoreVerificationDataSource : VerificationDataSource {
                 trySend(requests)
             }
         awaitClose { listener.remove() }
+    }
+
+    override suspend fun deleteRequest(uid: String) {
+        require(uid.isNotEmpty()) { "Identyfikator zgłaszającego nie może być pusty." }
+        collection.document(uid).delete().await()
     }
 
     override suspend fun submit(request: VerificationRequestModel) {
@@ -68,12 +77,12 @@ class FirestoreVerificationDataSource : VerificationDataSource {
             mapOf(
                 "status" to status.name,
                 "reviewedBy" to reviewerId,
-                "reviewedAt" to System.currentTimeMillis(),
+                "reviewedAt" to clock(),
                 "reviewNote" to note
             )
         )
         if (approved) {
-            batch.update(usersCollection.document(uid), mapOf("isVerified" to true))
+            batch.update(usersCollection.document(uid), UserProfileFields.verificationApproval())
         }
         batch.commit().await()
     }

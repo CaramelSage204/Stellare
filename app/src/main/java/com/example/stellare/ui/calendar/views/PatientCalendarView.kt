@@ -1,135 +1,144 @@
 package com.example.stellare.ui.calendar.views
 
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.EventBusy
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import com.example.stellare.ui.components.dialogTextScroll
 import com.example.stellare.data.model.AppointmentModel
-import com.example.stellare.data.model.UserModel
-import com.example.stellare.ui.calendar.components.AppointmentCard
+import com.example.stellare.data.model.AppointmentSchedule
+import com.example.stellare.ui.calendar.AxisAppointments
+import com.example.stellare.ui.calendar.ConfirmationTarget
+import com.example.stellare.ui.calendar.ConfirmationTarget.Operation
+import com.example.stellare.ui.calendar.DayAgenda
+import com.example.stellare.ui.calendar.DepositState
+import com.example.stellare.ui.calendar.RefundMessages
+import com.example.stellare.ui.calendar.ReclaimOffer
+import com.example.stellare.ui.calendar.SessionLabels
+import com.example.stellare.ui.calendar.components.DayNavigator
+import com.example.stellare.ui.calendar.components.HourAxis
+import com.example.stellare.ui.calendar.components.ReclaimCoinsRow
+import com.example.stellare.ui.calendar.components.SessionDetailDialog
+import com.example.stellare.ui.calendar.rememberDeposit
+import com.example.stellare.ui.calendar.rememberNowMillis
+import kotlinx.coroutines.flow.Flow
+import java.util.TimeZone
 
 @Composable
 fun PatientCalendarView(
     appointments: List<AppointmentModel>,
-    participants: Map<String, UserModel>,
-    onCancelAppointment: (String) -> Unit
+    userId: String?,
+    participantNames: Map<String, String>,
+    selectedDayMillis: Long,
+    todayMillis: Long,
+    zone: TimeZone,
+    nowProvider: () -> Long,
+    onSelectDay: (Long) -> Unit,
+    depositOf: (String) -> Flow<DepositState>,
+    onCancelAppointment: (String) -> Unit,
+    onReclaimAppointment: (String) -> Unit
 ) {
-    var showCancelConfirmDialog by remember { mutableStateOf<AppointmentModel?>(null) }
+    var detailId by remember { mutableStateOf<String?>(null) }
+    var cancelConfirmId by remember { mutableStateOf<String?>(null) }
 
-    val upcomingSessions = appointments.filter { it.status == "BOOKED" }
-    val pastSessions = appointments.filter { it.status == "COMPLETED" }
+    val nowMillis = rememberNowMillis(nowProvider, appointments)
+    val onAxis = remember(appointments, userId) { AxisAppointments.forAxis(appointments, false, userId) }
+    val agenda = remember(onAxis, selectedDayMillis, zone) { DayAgenda.of(onAxis, selectedDayMillis, zone) }
+
+    val reclaimable = remember(appointments, userId, nowMillis) { ReclaimOffer.candidates(appointments, userId, nowMillis) }
 
     Column(modifier = Modifier.fillMaxSize()) {
-        Text(
-            text = "Nadchodzące spotkania (${upcomingSessions.size})",
-            fontWeight = FontWeight.Bold,
-            fontSize = 16.sp,
-            color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.padding(bottom = 12.dp)
-        )
-
-        if (upcomingSessions.isEmpty()) {
-            Card(
-                modifier = Modifier.fillMaxWidth().padding(bottom = 24.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                shape = RoundedCornerShape(12.dp),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.15f))
-            ) {
-                Column(
-                    modifier = Modifier.padding(20.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Icon(Icons.Default.EventBusy, null, modifier = Modifier.size(44.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f))
-                    Spacer(modifier = Modifier.height(10.dp))
-                    Text("Brak zaplanowanych wizyt.", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                    Text(
-                        "Wejdź w profil wybranego psychologa z listy głównej i zarezerwuj dogodny wolny termin.",
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.padding(top = 4.dp)
-                    )
-                }
-            }
-        } else {
-            LazyColumn(
-                modifier = Modifier.fillMaxWidth().weight(1f).padding(bottom = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                items(upcomingSessions) { appointment ->
-                    val psychUser = participants[appointment.psychologistId]
-                    AppointmentCard(
+        DayNavigator(selectedDayMillis, todayMillis, zone, onSelectDay)
+        Spacer(modifier = Modifier.height(8.dp))
+        Column(
+            modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            reclaimable.forEach { appointment ->
+                key(appointment.appointmentId) {
+                    ReclaimCoinsRow(
                         appointment = appointment,
-                        otherUser = psychUser,
-                        isPsychologist = false,
-                        onCancel = { showCancelConfirmDialog = appointment }
+                        participantName = SessionLabels.participantName(appointment, false, participantNames),
+                        deposit = rememberDeposit(depositOf, appointment.appointmentId),
+                        userId = userId.orEmpty(),
+                        nowMillis = nowMillis,
+                        onReclaim = { onReclaimAppointment(appointment.appointmentId) }
                     )
                 }
             }
-        }
-
-        if (pastSessions.isNotEmpty()) {
-            Text(
-                text = "Historia sesji (${pastSessions.size})",
-                fontWeight = FontWeight.Bold,
-                fontSize = 16.sp,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(bottom = 12.dp)
+            HourAxis(
+                agenda = agenda,
+                dayMillis = selectedDayMillis,
+                zone = zone,
+                titleOf = { SessionLabels.title(it, false, participantNames) },
+                onSelect = { detailId = it.appointmentId }
             )
-            LazyColumn(
-                modifier = Modifier.fillMaxWidth().weight(0.7f),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                items(pastSessions) { appointment ->
-                    val psychUser = participants[appointment.psychologistId]
-                    AppointmentCard(
-                        appointment = appointment,
-                        otherUser = psychUser,
-                        isPsychologist = false
-                    )
-                }
-            }
+            Spacer(modifier = Modifier.height(72.dp))
         }
     }
 
-    showCancelConfirmDialog?.let { app ->
+    onAxis.firstOrNull { it.appointmentId == detailId }?.let { appointment ->
+        SessionDetailDialog(
+            appointment = appointment,
+            participantName = SessionLabels.participantName(appointment, false, participantNames),
+            isPsychologist = false,
+            nowMillis = nowMillis,
+            zone = zone,
+            missedVisitRefund = null,
+            onDismiss = { detailId = null },
+            onComplete = {},
+            onCancel = {
+                cancelConfirmId = appointment.appointmentId
+                detailId = null
+            },
+            onDelete = {}
+        )
+    }
+
+    ConfirmationTarget.resolve(cancelConfirmId, onAxis, Operation.CANCEL)?.let { app ->
+        val deposit = rememberDeposit(depositOf, app.appointmentId)
         AlertDialog(
-            onDismissRequest = { showCancelConfirmDialog = null },
+            onDismissRequest = { cancelConfirmId = null },
             title = { Text("Potwierdź odwołanie wizyty") },
             text = {
-                val dateParts = app.date.split("-")
-                val displayDate = if (dateParts.size == 3) "${dateParts[2]}.${dateParts[1]}.${dateParts[0]}" else app.date
+                val displayDate = AppointmentSchedule.displayDate(app.date)
                 Text(
                     text = "Czy na pewno chcesz odwołać wizytę zaplanowaną na $displayDate o godzinie ${app.time}?\n\n" +
-                            "Status wizyty zostanie cofnięty do wolnego slotu, a pacjent zostanie powiadomiony.",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                            RefundMessages.beforeCancel(app, deposit, viewerIsPsychologist = false, nowMillis = nowMillis),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.dialogTextScroll()
                 )
             },
             confirmButton = {
                 Button(
                     onClick = {
                         onCancelAppointment(app.appointmentId)
-                        showCancelConfirmDialog = null
+                        cancelConfirmId = null
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
                 ) {
-                    Text("Odwołaj wizytę", color = Color.White)
+                    Text("Odwołaj wizytę", color = MaterialTheme.colorScheme.onError)
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showCancelConfirmDialog = null }) { Text("Anuluj") }
+                TextButton(onClick = { cancelConfirmId = null }) { Text("Anuluj") }
             }
         )
     }

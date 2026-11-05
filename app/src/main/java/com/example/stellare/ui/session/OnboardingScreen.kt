@@ -16,7 +16,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
@@ -41,7 +40,6 @@ fun OnboardingScreen(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        // App Identity with modern title
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.padding(bottom = 16.dp)
@@ -72,10 +70,9 @@ fun OnboardingScreen(
             modifier = Modifier.padding(bottom = 24.dp)
         )
 
-        // Cozy counseling illustration from generate_image
         Image(
             painter = painterResource(id = R.drawable.img_psych_illustration),
-            contentDescription = "Counseling Illustration",
+            contentDescription = "Ilustracja poradnictwa",
             modifier = Modifier
                 .fillMaxWidth()
                 .height(240.dp)
@@ -97,7 +94,6 @@ fun OnboardingScreen(
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        // Bullet points of advantages matching Polish notes screenshots
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -130,13 +126,13 @@ fun OnboardingScreen(
             onClick = onNavigateToRegister,
             colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
             shape = RoundedCornerShape(12.dp),
-            modifier = Modifier.fillMaxWidth().height(52.dp).testTag("register_button")
+            modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp).testTag("register_button")
         ) {
             Text(
                 "Utwórz Konto i Rozpocznij",
                 fontSize = 16.sp,
                 fontWeight = FontWeight.Bold,
-                color = Color.Black
+                color = MaterialTheme.colorScheme.onPrimary
             )
         }
 
@@ -147,7 +143,7 @@ fun OnboardingScreen(
             shape = RoundedCornerShape(12.dp),
             colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.primary),
             border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary),
-            modifier = Modifier.fillMaxWidth().height(52.dp).testTag("login_button")
+            modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp).testTag("login_button")
         ) {
             Text(
                 "Zaloguj się na istniejące konto",

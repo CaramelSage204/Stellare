@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, it } from 'vitest'
 import { assertFails, assertSucceeds } from '@firebase/rules-unit-testing'
 import { deleteDoc, doc, getDoc, setDoc, updateDoc } from 'firebase/firestore'
-import { authedDb, seed, setupEnv } from './helpers.js'
+import { authedDb, seed, setupEnv , zalozUzytkownika } from './helpers.js'
 
 let env
 
@@ -10,19 +10,19 @@ afterAll(async () => { await env.cleanup() })
 beforeEach(async () => {
   await env.clearFirestore()
   await seed(env, async (db) => {
-    await setDoc(doc(db, 'users/psycholog'), {
+    await zalozUzytkownika(db, 'users/psycholog', {
       id: 'psycholog', role: 'PSYCHOLOGIST', isVerified: false,
       isAdmin: false, coinsBalance: 0, pricePerSession: 80,
     })
-    await setDoc(doc(db, 'users/student'), {
+    await zalozUzytkownika(db, 'users/student', {
       id: 'student', role: 'PSYCHOLOGY_STUDENT', isVerified: false,
       isAdmin: false, coinsBalance: 0, pricePerSession: 0,
     })
-    await setDoc(doc(db, 'users/pacjent'), {
+    await zalozUzytkownika(db, 'users/pacjent', {
       id: 'pacjent', role: 'PATIENT', isVerified: false,
       isAdmin: false, coinsBalance: 500, pricePerSession: 0,
     })
-    await setDoc(doc(db, 'users/obcy'), {
+    await zalozUzytkownika(db, 'users/obcy', {
       id: 'obcy', role: 'PSYCHOLOGIST', isVerified: true,
       isAdmin: false, coinsBalance: 0, pricePerSession: 60,
     })

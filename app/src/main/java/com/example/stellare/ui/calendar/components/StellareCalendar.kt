@@ -11,6 +11,7 @@ import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -21,6 +22,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import java.util.*
 import java.text.SimpleDateFormat
+import com.example.stellare.ui.LocalClock
+
+internal fun mondayFirstIndex(calendarDayOfWeek: Int): Int = (calendarDayOfWeek + 5) % 7
 
 @Composable
 fun StellareCalendar(
@@ -29,22 +33,20 @@ fun StellareCalendar(
     modifier: Modifier = Modifier
 ) {
     val sdf = SimpleDateFormat("yyyy-MM-dd", Locale.US)
-    val today = Calendar.getInstance()
+    val today = Calendar.getInstance().apply { timeInMillis = LocalClock.current() }
+    val startOfToday = (today.clone() as Calendar).apply {
+        set(Calendar.HOUR_OF_DAY, 0)
+        set(Calendar.MINUTE, 0)
+        set(Calendar.SECOND, 0)
+        set(Calendar.MILLISECOND, 0)
+    }
     val todayStr = sdf.format(today.time)
     
-    var currentMonthCalendar by remember {
-        mutableStateOf(Calendar.getInstance().apply {
-            if (selectedDate != null) {
-                val parts = selectedDate.split("-")
-                if (parts.size == 3) {
-                    set(Calendar.YEAR, parts[0].toInt())
-                    set(Calendar.MONTH, parts[1].toInt() - 1)
-                    set(Calendar.DAY_OF_MONTH, 1)
-                }
-            } else {
-                set(Calendar.DAY_OF_MONTH, 1)
-            }
-        })
+    var monthKey by rememberSaveable {
+        mutableIntStateOf(VisibleMonth.initial(selectedDate, today.get(Calendar.YEAR), today.get(Calendar.MONTH)))
+    }
+    val currentMonthCalendar = (today.clone() as Calendar).apply {
+        set(VisibleMonth.year(monthKey), VisibleMonth.monthZeroBased(monthKey), 1)
     }
 
     val months = listOf(
@@ -57,15 +59,10 @@ fun StellareCalendar(
     
     val daysInMonth = currentMonthCalendar.getActualMaximum(Calendar.DAY_OF_MONTH)
     
-    // 1st day of month
     val firstDayOfMonth = currentMonthCalendar.clone() as Calendar
     firstDayOfMonth.set(Calendar.DAY_OF_MONTH, 1)
     
-    // Day of week (1=Sun, 2=Mon, ..., 7=Sat)
-    val dayOfWeek = firstDayOfMonth.get(Calendar.DAY_OF_WEEK)
-    
-    // Convert to 0=Mon, 1=Tue, ..., 6=Sun
-    val leadingEmptySlots = (dayOfWeek + 5) % 7
+    val leadingEmptySlots = mondayFirstIndex(firstDayOfMonth.get(Calendar.DAY_OF_WEEK))
     
     val daysOfWeek = listOf("Pn", "Wt", "Śr", "Cz", "Pt", "Sb", "Nd")
     
@@ -76,7 +73,6 @@ fun StellareCalendar(
             .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.15f), RoundedCornerShape(16.dp))
             .padding(12.dp)
     ) {
-        // Calendar Header
         Row(
             modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -84,9 +80,7 @@ fun StellareCalendar(
         ) {
             IconButton(
                 onClick = {
-                    val newCal = currentMonthCalendar.clone() as Calendar
-                    newCal.add(Calendar.MONTH, -1)
-                    currentMonthCalendar = newCal
+                    monthKey -= 1
                 },
                 modifier = Modifier.size(32.dp)
             ) {
@@ -97,14 +91,14 @@ fun StellareCalendar(
                 text = monthTitle,
                 fontWeight = FontWeight.Bold,
                 fontSize = 16.sp,
-                color = MaterialTheme.colorScheme.primary
+                textAlign = TextAlign.Center,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.weight(1f)
             )
             
             IconButton(
                 onClick = {
-                    val newCal = currentMonthCalendar.clone() as Calendar
-                    newCal.add(Calendar.MONTH, 1)
-                    currentMonthCalendar = newCal
+                    monthKey += 1
                 },
                 modifier = Modifier.size(32.dp)
             ) {
@@ -112,7 +106,6 @@ fun StellareCalendar(
             }
         }
         
-        // Days of week header
         Row(
             modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
             horizontalArrangement = Arrangement.SpaceBetween
@@ -129,7 +122,6 @@ fun StellareCalendar(
             }
         }
         
-        // Days Grid
         val totalSlots = daysInMonth + leadingEmptySlots
         val rows = (totalSlots + 6) / 7
         
@@ -155,12 +147,7 @@ fun StellareCalendar(
                             
                             val isSelected = selectedDate == dateStr
                             val isToday = todayStr == dateStr
-                            val isPast = dateCal.before(Calendar.getInstance().apply { 
-                                set(Calendar.HOUR_OF_DAY, 0)
-                                set(Calendar.MINUTE, 0)
-                                set(Calendar.SECOND, 0)
-                                set(Calendar.MILLISECOND, 0)
-                            })
+                            val isPast = dateCal.before(startOfToday)
                             
                             Box(
                                 modifier = Modifier
@@ -191,7 +178,7 @@ fun StellareCalendar(
                                     text = dayNum.toString(),
                                     fontWeight = if (isSelected || isToday) FontWeight.Bold else FontWeight.Normal,
                                     color = when {
-                                        isSelected -> Color.Black
+                                        isSelected -> MaterialTheme.colorScheme.onPrimary
                                         !isPast -> MaterialTheme.colorScheme.onSurface
                                         else -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.25f)
                                     },

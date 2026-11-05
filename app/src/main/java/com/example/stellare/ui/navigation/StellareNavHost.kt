@@ -12,6 +12,7 @@ import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
+import com.example.stellare.data.settings.AppSettings
 import com.example.stellare.di.AppContainer
 import com.example.stellare.di.stellareViewModelFactory
 import com.example.stellare.ui.auth.AuthStatus
@@ -25,13 +26,19 @@ import com.example.stellare.ui.dashboard.MainDashboardScreen
 import com.example.stellare.ui.feed.FeedViewModel
 import com.example.stellare.ui.posts.PostComposerScreen
 import com.example.stellare.ui.posts.PostViewModel
-import com.example.stellare.ui.profile.FAQScreen
+import com.example.stellare.ui.faq.FAQScreen
+import com.example.stellare.ui.settings.AccountDeletionViewModel
+import com.example.stellare.ui.settings.DeleteAccountScreen
+import com.example.stellare.ui.settings.SettingsScreen
+import com.example.stellare.ui.settings.SettingsViewModel
 import com.example.stellare.ui.profile.ProfileEditScreen
 import com.example.stellare.ui.profile.ProfileViewModel
 import com.example.stellare.ui.psychologistdetail.PsychologistDetailScreen
 import com.example.stellare.ui.reviews.MyRatingsScreen
+import com.example.stellare.ui.session.CompleteProfileScreen
 import com.example.stellare.ui.session.LoginScreen
 import com.example.stellare.ui.session.OnboardingScreen
+import com.example.stellare.ui.session.PhoneVerificationScreen
 import com.example.stellare.ui.session.RegistrationScreen
 import com.example.stellare.ui.session.SplashScreen
 import com.example.stellare.ui.verification.AdminPanelScreen
@@ -56,21 +63,20 @@ fun StellareNavHost(
     val profileViewModel: ProfileViewModel = viewModel(factory = factory)
     val postViewModel: PostViewModel = viewModel(factory = factory)
     val verificationViewModel: VerificationViewModel = viewModel(factory = factory)
+    val settingsViewModel: SettingsViewModel = viewModel(factory = factory)
+    val accountDeletionViewModel: AccountDeletionViewModel = viewModel(factory = factory)
 
     val authStatus by authViewModel.authStatus.collectAsStateWithLifecycle()
     val currentUser by profileViewModel.currentUser.collectAsStateWithLifecycle()
+    val profileReadFailure by profileViewModel.profileReadFailure.collectAsStateWithLifecycle()
 
     LaunchedEffect(authStatus) {
-        when (authStatus) {
-            AuthStatus.LOGGED_IN -> navController.navigate(Routes.FEED) {
+        val target = AuthRedirect.target(authStatus, navController.currentDestination?.route)
+        if (target != null) {
+            navController.navigate(target) {
                 popUpTo(0) { inclusive = true }
                 launchSingleTop = true
             }
-            AuthStatus.LOGGED_OUT -> navController.navigate(Routes.ONBOARDING) {
-                popUpTo(0) { inclusive = true }
-                launchSingleTop = true
-            }
-            AuthStatus.UNKNOWN -> Unit
         }
     }
 
@@ -104,6 +110,10 @@ fun StellareNavHost(
             )
         }
 
+        composable(Routes.COMPLETE_PROFILE) {
+            CompleteProfileScreen(viewModel = authViewModel)
+        }
+
         composable(Routes.FEED) {
             MainDashboardScreen(
                 feedViewModel = feedViewModel,
@@ -111,13 +121,23 @@ fun StellareNavHost(
                 authViewModel = authViewModel,
                 chatViewModel = chatViewModel,
                 currentUser = currentUser,
+                profileReadFailure = profileReadFailure,
+                onRetryProfile = profileViewModel::retryProfile,
                 onOpenProfileSheet = onOpenProfileSheet,
                 onPsychologistSelected = { psychologistId ->
                     navController.navigate(Routes.psychologistDetail(psychologistId))
                 },
                 onChatOpened = { chatId -> navController.navigate(Routes.chatRoom(chatId)) },
                 onShowChats = { navController.navigate(Routes.CHATS) },
-                onNewPost = { navController.navigate(Routes.POST_COMPOSER) }
+                onNewPost = { navController.navigate(Routes.POST_COMPOSER) },
+                onVerifyPhone = { navController.navigate(Routes.PHONE_VERIFICATION) }
+            )
+        }
+
+        composable(Routes.PHONE_VERIFICATION) {
+            PhoneVerificationScreen(
+                viewModel = authViewModel,
+                onBack = { navController.popBackStack() }
             )
         }
 
@@ -133,9 +153,7 @@ fun StellareNavHost(
             CalendarScreen(
                 viewModel = calendarViewModel,
                 profileViewModel = profileViewModel,
-                chatViewModel = chatViewModel,
-                onOpenProfileSheet = onOpenProfileSheet,
-                onBack = { navController.popBackStack() }
+                onOpenProfileSheet = onOpenProfileSheet
             )
         }
 
@@ -144,7 +162,7 @@ fun StellareNavHost(
                 viewModel = chatViewModel,
                 profileViewModel = profileViewModel,
                 onOpenProfileSheet = onOpenProfileSheet,
-                onBack = { navController.popBackStack() },
+                onBack = null,
                 onChatSelected = { chatId -> navController.navigate(Routes.chatRoom(chatId)) }
             )
         }
@@ -153,8 +171,7 @@ fun StellareNavHost(
             WalletScreen(
                 viewModel = walletViewModel,
                 profileViewModel = profileViewModel,
-                onOpenProfileSheet = onOpenProfileSheet,
-                onBack = { navController.popBackStack() }
+                onOpenProfileSheet = onOpenProfileSheet
             )
         }
 
@@ -184,6 +201,23 @@ fun StellareNavHost(
 
         composable(Routes.FAQ) {
             FAQScreen(onBack = { navController.popBackStack() })
+        }
+
+        composable(Routes.SETTINGS) {
+            SettingsScreen(
+                viewModel = settingsViewModel,
+                onBack = { navController.popBackStack() },
+                onOpenPhoneVerification = { navController.navigate(Routes.PHONE_VERIFICATION) },
+                onOpenFaq = { navController.navigate(Routes.FAQ) },
+                onOpenDeleteAccount = { navController.navigate(Routes.DELETE_ACCOUNT) }
+            )
+        }
+
+        composable(Routes.DELETE_ACCOUNT) {
+            DeleteAccountScreen(
+                viewModel = accountDeletionViewModel,
+                onBack = { navController.popBackStack() }
+            )
         }
 
         composable(Routes.VERIFICATION) {
@@ -226,11 +260,13 @@ fun StellareNavHost(
             arguments = listOf(navArgument("chatId") { type = NavType.StringType })
         ) { entry ->
             val id = entry.arguments?.getString("chatId").orEmpty()
+            val settings by settingsViewModel.settings.collectAsStateWithLifecycle()
 
             ChatRoomScreen(
                 viewModel = chatViewModel,
                 profileViewModel = profileViewModel,
                 chatId = id,
+                bubbleColor = (settings ?: AppSettings()).bubbleColor,
                 onBack = { navController.popBackStack() }
             )
         }

@@ -41,6 +41,14 @@
       ]
     },
     {
+      "collectionGroup": "wallet_transactions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "userId", "order": "ASCENDING" },
+        { "fieldPath": "transactionId", "order": "ASCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "posts",
       "queryScope": "COLLECTION",
       "fields": [

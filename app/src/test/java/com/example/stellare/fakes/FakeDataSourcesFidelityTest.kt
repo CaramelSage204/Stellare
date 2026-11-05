@@ -32,15 +32,17 @@ class FakeDataSourcesFidelityTest {
     fun `rezerwacja bez pokrycia rzuca wyjatek o braku monet`() = runTest {
         val users = FakeUserDataSource(
             listOf(
-                UserModel(id = "patient1", role = UserRole.PATIENT, coinsBalance = 10),
-                UserModel(id = "psych1", role = UserRole.PSYCHOLOGIST, coinsBalance = 0)
-            )
+                UserModel(id = "patient1", role = UserRole.PATIENT),
+                UserModel(id = "psych1", role = UserRole.PSYCHOLOGIST)
+            ),
+            balances = mapOf("patient1" to 10, "psych1" to 0)
         )
         val appointments = FakeAppointmentDataSource(
             initial = listOf(
-                AppointmentModel(appointmentId = "a1", psychologistId = "psych1", status = "FREE")
+                AppointmentModel(appointmentId = "a1", psychologistId = "psych1", status = "FREE", priceCoins = 80, startsAtMillis = 4102444800000L)
             ),
-            users = users
+            users = users,
+            wallet = FakeWalletDataSource()
         )
 
         val exception = try {
@@ -75,17 +77,6 @@ class FakeDataSourcesFidelityTest {
     }
 
     @Test
-    fun `tryb zredukowany bez portfela przepuszcza rezerwacje mimo braku pokrycia`() = runTest {
-        val termin = AppointmentModel(
-            appointmentId = "t1", psychologistId = "p1", patientId = null,
-            date = "2026-10-01", time = "10:00", status = "FREE", priceCoins = 80
-        )
-        val source = FakeAppointmentDataSource(listOf(termin))
-        source.bookAppointmentAtomically("t1", "k1", "p1", 80, "")
-        assertEquals("BOOKED", source.appointments.value.first().status)
-    }
-
-    @Test
     fun `rezerwacja przez nieznanego pacjenta traktuje saldo jak zero`() = runTest {
         val users = FakeUserDataSource(emptyList())
         val wallet = FakeWalletDataSource()
@@ -98,6 +89,7 @@ class FakeDataSourcesFidelityTest {
             source.bookAppointmentAtomically("t1", "nieznany", "p1", 80, "")
         }.exceptionOrNull()
         assertTrue(wyjatek is IllegalStateException)
+        assertEquals("Za mało monet w portfelu.", wyjatek?.message)
     }
 
     @Test

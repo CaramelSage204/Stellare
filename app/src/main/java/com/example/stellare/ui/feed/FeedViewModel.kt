@@ -3,10 +3,16 @@ package com.example.stellare.ui.feed
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.stellare.data.model.RatingModel
 import com.example.stellare.data.model.UserModel
 import com.example.stellare.data.model.UserRole
 import com.example.stellare.data.repository.UserRepository
+import com.example.stellare.ui.StaleData
+import com.example.stellare.ui.lastKnownUser
+import com.example.stellare.ui.dashboard.ratingBadges
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -19,6 +25,9 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
+internal const val RATINGS_STALE_MESSAGE =
+    "Nie udało się odświeżyć ocen. Pokazane oceny mogą być nieaktualne."
+
 @OptIn(ExperimentalCoroutinesApi::class)
 class FeedViewModel(private val userRepository: UserRepository) : ViewModel() {
 
@@ -26,20 +35,39 @@ class FeedViewModel(private val userRepository: UserRepository) : ViewModel() {
     val filters: StateFlow<FeedFilters> = _filters.asStateFlow()
 
     private val currentUser = userRepository.getCurrentUserFlow()
+        .lastKnownUser()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
+    private fun usersOfRole(role: UserRole): Flow<List<UserModel>> = userRepository.isSignedInFlow()
+        .flatMapLatest { signedIn ->
+            if (signedIn) userRepository.getUsersOfRoleFlow(role) else flowOf(emptyList())
+        }
+
+    private val ratingsStale = StaleData(RATINGS_STALE_MESSAGE)
+    val ratingsStaleMessage: StateFlow<String?> = ratingsStale.message
+
+    fun retryRatings() {
+        ratingsStale.retry()
+    }
+
+    private val oceny: StateFlow<Map<String, RatingModel>> = ratingsStale
+        .cover("Ratings", "ocen") {
+            userRepository.isSignedInFlow().flatMapLatest { signedIn ->
+                if (signedIn) userRepository.getRatingsFlow() else flowOf(emptyMap())
+            }
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
+
     private val wszyscyPsycholodzy = combine(
-        userRepository.getUsersOfRoleFlow(UserRole.PSYCHOLOGIST),
-        userRepository.getUsersOfRoleFlow(UserRole.PSYCHOLOGY_STUDENT)
+        usersOfRole(UserRole.PSYCHOLOGIST),
+        usersOfRole(UserRole.PSYCHOLOGY_STUDENT)
     ) { zawodowi, studenci -> zawodowi + studenci }
 
-    val psychologists: StateFlow<List<UserModel>> =
-        combine(wszyscyPsycholodzy, _filters) { lista, filtry ->
-            lista.filter(filtry::matches).sortedByDescending { it.id }
-        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    val authorRatingBadges: StateFlow<Map<String, String>> = oceny
+        .map(::ratingBadges)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
 
     val patients: StateFlow<List<UserModel>> = combine(
-        userRepository.getUsersOfRoleFlow(UserRole.PATIENT),
+        usersOfRole(UserRole.PATIENT),
         _filters
     ) { lista, filtry ->
         lista.filter { user ->
@@ -49,17 +77,18 @@ class FeedViewModel(private val userRepository: UserRepository) : ViewModel() {
         }.sortedByDescending { it.id }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val favoriteIds: StateFlow<Set<String>> = currentUser
-        .flatMapLatest { user ->
-            if (user == null) flowOf(emptySet())
-            else userRepository.getFavoritesForUserFlow(user.id)
+    val favoriteIds: StateFlow<Set<String>> = userRepository
+        .signedInUserIdFlow()
+        .flatMapLatest { uid ->
+            if (uid == null) flowOf(emptySet())
+            else userRepository.getFavoritesForUserFlow(uid)
                 .map { lista -> lista.map { it.psychologistId }.toSet() }
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptySet())
 
     val favoritePsychologists: StateFlow<List<UserModel>> = combine(
         currentUser,
         wszyscyPsycholodzy,
-        userRepository.getUsersOfRoleFlow(UserRole.PATIENT),
+        usersOfRole(UserRole.PATIENT),
         favoriteIds
     ) { user, allPsychs, allPatients, favIds ->
         val isPsych = user?.role == UserRole.PSYCHOLOGIST || user?.role == UserRole.PSYCHOLOGY_STUDENT
@@ -90,6 +119,8 @@ class FeedViewModel(private val userRepository: UserRepository) : ViewModel() {
                 } else {
                     userRepository.insertFavorite(user.id, psychologistId)
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 Log.e("Favorites", "Nie udalo sie zmienic ulubionych", e)
             }

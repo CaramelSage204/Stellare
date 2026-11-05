@@ -4,7 +4,9 @@ import com.example.stellare.data.model.ChatModel
 import com.google.firebase.Firebase
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.Query
+import com.google.firebase.firestore.QuerySnapshot
 import com.google.firebase.firestore.firestore
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
@@ -37,8 +39,7 @@ class FirestoreChatDataSource : ChatDataSource {
                     android.util.Log.e("FirestoreChat", "Error fetching chats for user $userId: ${error.message}", error)
                     return@addSnapshotListener
                 }
-                val chats = snap?.toObjects(ChatModel::class.java) ?: emptyList()
-                trySend(chats)
+                trySend(chatsOf(snap))
             }
         awaitClose { listener.remove() }
     }
@@ -51,15 +52,26 @@ class FirestoreChatDataSource : ChatDataSource {
                 .whereArrayContains("participants", searchId)
                 .get()
                 .await()
-            snap.toObjects(ChatModel::class.java).firstOrNull {
+            chatsOf(snap).firstOrNull {
                 it.participants.contains(psychId) && it.participants.contains(patientId)
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             android.util.Log.e("FirestoreChat", "Error getting chat by participants", e)
             null
         }
     }
 
+
+    // Tozsamosc czatu pochodzi z identyfikatora dokumentu, nigdy z pola "chatId":
+    // updateChat() celuje w chats/<pole>, a getChatByParticipants() podstawia ten
+    // czat ekranowi rozmowy. Pole pisze klient, wiec bez tego mapowania dwa czaty
+    // moga twierdzic, ze sa tym samym czatem.
+    private fun chatsOf(snapshot: QuerySnapshot?): List<ChatModel> =
+        snapshot?.documents?.mapNotNull { document ->
+            document.toObject(ChatModel::class.java)?.copy(chatId = document.id)
+        } ?: emptyList()
 
     override suspend fun updateChat(chat: ChatModel) {
         collection.document(chat.chatId).update(

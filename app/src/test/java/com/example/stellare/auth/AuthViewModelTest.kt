@@ -1,11 +1,14 @@
 package com.example.stellare.auth
 
+import com.example.stellare.fakes.privateProfilesOf
+import com.example.stellare.fakes.FakePrivateProfileDataSource
 import com.example.stellare.data.model.UserModel
 import com.example.stellare.data.model.UserRole
 import com.example.stellare.data.remote.AuthDataSource
 import com.example.stellare.data.repository.UserRepository
 import com.example.stellare.fakes.FakeAuthDataSource
 import com.example.stellare.fakes.FakeFavoriteDataSource
+import com.example.stellare.fakes.FakeRatingDataSource
 import com.example.stellare.fakes.FakeUserDataSource
 import com.example.stellare.ui.auth.AuthStatus
 import com.example.stellare.ui.auth.AuthViewModel
@@ -39,7 +42,7 @@ class AuthViewModelTest {
     @After fun tearDown() = Dispatchers.resetMain()
 
     private fun authViewModelNaAtrapach(): AuthViewModel {
-        val userRepository = UserRepository(FakeAuthDataSource(), FakeUserDataSource(), FakeFavoriteDataSource())
+        val userRepository = UserRepository(FakeAuthDataSource(), FakeUserDataSource(), FakeFavoriteDataSource(), FakeRatingDataSource(), FakePrivateProfileDataSource())
         return AuthViewModel(userRepository, FakeAuthDataSource())
     }
 
@@ -47,7 +50,7 @@ class AuthViewModelTest {
         authDataSource: FakeAuthDataSource = FakeAuthDataSource(),
         userDataSource: FakeUserDataSource = FakeUserDataSource()
     ): AuthViewModel {
-        val userRepository = UserRepository(authDataSource, userDataSource, FakeFavoriteDataSource())
+        val userRepository = UserRepository(authDataSource, userDataSource, FakeFavoriteDataSource(), FakeRatingDataSource(), privateProfilesOf(userDataSource))
         return AuthViewModel(userRepository, authDataSource)
     }
 
@@ -80,7 +83,7 @@ class AuthViewModelTest {
         assertEquals("Jan", zapisany.firstName)
         assertEquals("Kowalski", zapisany.lastName)
         assertEquals(30, zapisany.age)
-        assertEquals("jan@example.com", zapisany.email)
+        assertEquals("jan@example.com", userDataSource.privateProfiles.profiles.value.getValue("nowy-uid").email)
         assertTrue(vm.showTutorialPrompt.value)
         assertNull(vm.authError.value)
     }
@@ -105,7 +108,7 @@ class AuthViewModelTest {
         )
         advanceUntilIdle()
 
-        assertEquals("Błąd rejestracji: E-mail zajęty", vm.authError.value)
+        assertEquals("Błąd rejestracji: nie udało się utworzyć konta. Spróbuj ponownie.", vm.authError.value)
         assertTrue(userDataSource.users.value.isEmpty())
         assertFalse(vm.showTutorialPrompt.value)
     }
@@ -143,7 +146,29 @@ class AuthViewModelTest {
         vm.login("anna@example.com", "zlehaslo")
         advanceUntilIdle()
 
-        assertEquals("Błąd logowania: Błędne hasło", vm.authError.value)
+        assertEquals("Błąd logowania: nie udało się zalogować. Spróbuj ponownie.", vm.authError.value)
+    }
+
+    @Test
+    fun `logowanie z wyjatkiem spoza Firebase nie pokazuje surowego angielskiego tekstu`() = runTest(dispatcher) {
+        val authDataSource = FakeAuthDataSource().apply {
+            signInResult = Result.failure(IllegalStateException("Raw English failure"))
+        }
+        val vm = authViewModel(authDataSource, FakeUserDataSource())
+
+        vm.login("anna@example.com", "haslo123")
+        advanceUntilIdle()
+
+        assertEquals("Błąd logowania: nie udało się zalogować. Spróbuj ponownie.", vm.authError.value)
+    }
+
+    @Test
+    fun `blad pobrania poswiadczenia Google ustawia polski komunikat`() = runTest(dispatcher) {
+        val vm = authViewModel(FakeAuthDataSource(), FakeUserDataSource())
+
+        vm.onGoogleCredentialFailure(IllegalStateException("Raw English failure"))
+
+        assertEquals("Błąd logowania Google: nie udało się zalogować. Spróbuj ponownie.", vm.authError.value)
     }
 
     @Test
@@ -191,7 +216,9 @@ class AuthViewModelTest {
         val userRepository = UserRepository(
             NeverRespondingAuthDataSource(),
             FakeUserDataSource(),
-            FakeFavoriteDataSource()
+            FakeFavoriteDataSource(),
+            FakeRatingDataSource(),
+            FakePrivateProfileDataSource()
         )
         val vm = AuthViewModel(userRepository, NeverRespondingAuthDataSource())
         backgroundScope.launch { vm.authStatus.collect {} }
@@ -211,6 +238,8 @@ class AuthViewModelTest {
         override suspend fun registerWithEmail(email: String, password: String): String? = null
         override suspend fun signInWithEmail(email: String, password: String): String? = null
         override suspend fun signInWithGoogle(idToken: String): String? = null
+        override suspend fun sendPasswordResetEmail(email: String) = throw UnsupportedOperationException()
+        override suspend fun deleteCurrentAccount() = throw UnsupportedOperationException()
         override fun signOut() {}
     }
 }

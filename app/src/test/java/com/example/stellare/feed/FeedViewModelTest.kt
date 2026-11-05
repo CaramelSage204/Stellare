@@ -1,12 +1,15 @@
 package com.example.stellare.feed
 
+import com.example.stellare.fakes.FakePrivateProfileDataSource
 import com.example.stellare.data.model.FavoriteModel
 import com.example.stellare.data.model.PostModel
+import com.example.stellare.data.model.RatingModel
 import com.example.stellare.data.model.UserModel
 import com.example.stellare.data.model.UserRole
 import com.example.stellare.data.repository.UserRepository
 import com.example.stellare.fakes.FakeAuthDataSource
 import com.example.stellare.fakes.FakeFavoriteDataSource
+import com.example.stellare.fakes.FakeRatingDataSource
 import com.example.stellare.fakes.FakeUserDataSource
 import com.example.stellare.ui.feed.FeedFilters
 import com.example.stellare.ui.feed.FeedViewModel
@@ -26,68 +29,6 @@ import org.junit.Before
 import org.junit.Test
 
 class FeedFiltersTest {
-
-    private val psycholog = UserModel(
-        id = "p1", firstName = "Ala", lastName = "Kowalska", age = 35,
-        gender = "Kobieta", role = UserRole.PSYCHOLOGIST, isVerified = true,
-        specializations = "Rodzina, Praca", pricePerSession = 120.0, rating = 4.5
-    )
-
-    @Test
-    fun `domyslne filtry przepuszczaja wszystkich`() {
-        assertTrue(FeedFilters().matches(psycholog))
-    }
-
-    @Test
-    fun `filtr ceny odcina za drogich`() {
-        assertFalse(FeedFilters(priceMax = 100.0).matches(psycholog))
-        assertTrue(FeedFilters(priceMax = 120.0).matches(psycholog))
-    }
-
-    @Test
-    fun `filtr wieku dziala obustronnie`() {
-        assertFalse(FeedFilters(ageMin = 40).matches(psycholog))
-        assertFalse(FeedFilters(ageMax = 30).matches(psycholog))
-        assertTrue(FeedFilters(ageMin = 30, ageMax = 40).matches(psycholog))
-    }
-
-    @Test
-    fun `filtr weryfikacji przepuszcza zweryfikowanych`() {
-        assertTrue(FeedFilters(verifiedOnly = true).matches(psycholog))
-        assertFalse(FeedFilters(verifiedOnly = true).matches(psycholog.copy(isVerified = false)))
-    }
-
-    @Test
-    fun `wyszukiwanie dziala po nazwisku i specjalizacji`() {
-        assertTrue(FeedFilters(query = "kowalska").matches(psycholog))
-        assertTrue(FeedFilters(query = "rodzina").matches(psycholog))
-        assertFalse(FeedFilters(query = "nieistniejace").matches(psycholog))
-    }
-
-    @Test
-    fun `filtr oceny odcina slabiej ocenianych`() {
-        assertFalse(FeedFilters(minRating = 4.8).matches(psycholog))
-        assertTrue(FeedFilters(minRating = 4.5).matches(psycholog))
-    }
-
-    @Test
-    fun `granice przedzialu wieku sa domkniete z obu stron`() {
-        assertTrue(FeedFilters(ageMin = 35, ageMax = 35).matches(psycholog))
-        assertFalse(FeedFilters(ageMin = 36, ageMax = 40).matches(psycholog))
-        assertFalse(FeedFilters(ageMin = 30, ageMax = 34).matches(psycholog))
-    }
-
-    @Test
-    fun `filtr plci odcina niepasujacych`() {
-        assertTrue(FeedFilters(gender = "Kobieta").matches(psycholog))
-        assertFalse(FeedFilters(gender = "Mezczyzna").matches(psycholog))
-    }
-
-    @Test
-    fun `filtr specjalizacji odcina niepasujacych`() {
-        assertTrue(FeedFilters(specialization = "Rodzina").matches(psycholog))
-        assertFalse(FeedFilters(specialization = "Uzaleznienia").matches(psycholog))
-    }
 
     private val ogloszenie = PostModel(
         id = "post1",
@@ -152,35 +93,46 @@ class FeedViewModelTest {
 
     private val tani = UserModel(
         id = "p1", firstName = "Ala", age = 35, role = UserRole.PSYCHOLOGIST,
-        pricePerSession = 80.0, rating = 4.5, isVerified = true
+        pricePerSession = 80.0, isVerified = true
     )
     private val drogi = UserModel(
         id = "p2", firstName = "Borys", age = 45, role = UserRole.PSYCHOLOGIST,
-        pricePerSession = 300.0, rating = 4.9, isVerified = true
+        pricePerSession = 300.0, isVerified = true
     )
 
-    private fun viewModel(vararg users: UserModel): FeedViewModel {
+    private val oceny = mapOf("p1" to RatingModel(sum = 9, count = 2), "p2" to RatingModel(sum = 49, count = 10))
+
+    private fun viewModel(vararg users: UserModel, ratingSource: FakeRatingDataSource = FakeRatingDataSource().apply { ratings.value = oceny }): FeedViewModel {
         val repo = UserRepository(
             FakeAuthDataSource("k1"),
             FakeUserDataSource(users.toList()),
-            FakeFavoriteDataSource()
+            FakeFavoriteDataSource(),
+            ratingSource,
+            FakePrivateProfileDataSource()
         )
         return FeedViewModel(repo)
     }
 
     @Test
-    fun `filtr ceny zaweza liste psychologow`() = runTest(dispatcher) {
-        val vm = viewModel(tani, drogi)
-        vm.updateFilters(FeedFilters(priceMax = 100.0))
-        assertEquals(listOf("p1"), vm.psychologists.first { it.isNotEmpty() }.map { it.id })
+    fun `zmiana agregatu w ratings odswieza plakietki bez ponownego pobrania uzytkownikow`() = runTest(dispatcher) {
+        val ratingSource = FakeRatingDataSource().apply { ratings.value = oceny }
+        val vm = viewModel(tani, drogi, ratingSource = ratingSource)
+        assertEquals("4,5", vm.authorRatingBadges.first { it["p1"] != null }["p1"])
+
+        ratingSource.ratings.value = oceny + ("p1" to RatingModel(sum = 10, count = 2))
+
+        assertEquals("5,0", vm.authorRatingBadges.first { it["p1"] == "5,0" }["p1"])
     }
 
     @Test
-    fun `reset filtrow przywraca pelna liste`() = runTest(dispatcher) {
-        val vm = viewModel(tani, drogi)
-        vm.updateFilters(FeedFilters(priceMax = 100.0))
-        vm.resetFilters()
-        assertEquals(2, vm.psychologists.first { it.size == 2 }.size)
+    fun `plakietki ocen pochodza z agregatu i pomijaja autorow bez opinii`() = runTest(dispatcher) {
+        val vm = viewModel(tani, drogi, ratingSource = FakeRatingDataSource().apply {
+            ratings.value = oceny + ("p3" to RatingModel())
+        })
+        val plakietki = vm.authorRatingBadges.first { it.isNotEmpty() }
+        assertEquals("4,5", plakietki["p1"])
+        assertEquals("4,9", plakietki["p2"])
+        assertFalse("autor bez opinii nie moze miec plakietki", "p3" in plakietki)
     }
 
     @Test
@@ -190,7 +142,9 @@ class FeedViewModelTest {
         val repo = UserRepository(
             FakeAuthDataSource("k1"),
             FakeUserDataSource(listOf(pacjent, tani)),
-            favoriteDataSource
+            favoriteDataSource,
+            FakeRatingDataSource(),
+            FakePrivateProfileDataSource()
         )
         val vm = FeedViewModel(repo)
 
@@ -208,7 +162,9 @@ class FeedViewModelTest {
         val repo = UserRepository(
             FakeAuthDataSource("k1"),
             FakeUserDataSource(listOf(pacjent, tani)),
-            favoriteDataSource
+            favoriteDataSource,
+            FakeRatingDataSource(),
+            FakePrivateProfileDataSource()
         )
         val vm = FeedViewModel(repo)
 
@@ -227,11 +183,13 @@ class FeedViewModelTest {
         val repo = UserRepository(
             FakeAuthDataSource("k1"),
             FakeUserDataSource(listOf(psycholog, pacjent, tani, drogi)),
-            favoriteDataSource
+            favoriteDataSource,
+            FakeRatingDataSource(),
+            FakePrivateProfileDataSource()
         )
         val vm = FeedViewModel(repo)
 
-        vm.updateFilters(FeedFilters(priceMax = 1.0, ageMin = 99, query = "fraza ktorej pacjent nie ma"))
+        vm.updateFilters(FeedFilters(query = "fraza ktorej pacjent nie ma", tags = setOf("Seksuolog")))
 
         val ulubieni = vm.favoritePsychologists.first { it.isNotEmpty() }
 

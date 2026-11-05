@@ -1,5 +1,6 @@
 package com.example.stellare.posts
 
+import com.example.stellare.fakes.privateProfilesOf
 import com.example.stellare.data.model.PostModel
 import com.example.stellare.data.model.PostType
 import com.example.stellare.data.model.UserModel
@@ -8,6 +9,7 @@ import com.example.stellare.data.repository.PostRepository
 import com.example.stellare.data.repository.UserRepository
 import com.example.stellare.fakes.FakeAuthDataSource
 import com.example.stellare.fakes.FakeFavoriteDataSource
+import com.example.stellare.fakes.FakeRatingDataSource
 import com.example.stellare.fakes.FakePostDataSource
 import com.example.stellare.fakes.FakeUserDataSource
 import com.example.stellare.ui.posts.PostViewModel
@@ -38,7 +40,7 @@ class PostViewModelTest {
     private fun viewModelDla(user: UserModel?): Pair<PostViewModel, FakePostDataSource> {
         val postDataSource = FakePostDataSource()
         val userDataSource = FakeUserDataSource(if (user != null) listOf(user) else emptyList())
-        val userRepository = UserRepository(FakeAuthDataSource(user?.id), userDataSource, FakeFavoriteDataSource())
+        val userRepository = UserRepository(FakeAuthDataSource(user?.id), userDataSource, FakeFavoriteDataSource(), FakeRatingDataSource(), privateProfilesOf(userDataSource))
         val vm = PostViewModel(PostRepository(postDataSource), userRepository)
         return vm to postDataSource
     }
